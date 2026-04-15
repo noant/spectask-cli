@@ -1,0 +1,1 @@
+Read `spec/navigation.md`, then `spec/main.md`. Use **spectask-create** (Steps 1–2), **spectask-extend** (new `spec/extend/*` + navigation entry), or **spectask-execute** (Steps 4–7) depending on the task.
