@@ -27,7 +27,7 @@ def _template_url_from_argv(argv: list[str] | None) -> str:
 
 
 def _official_ide_keys_with_all() -> list[str]:
-    return [*OFFICIAL_TEMPLATE_IDE_KEYS, "all"]
+    return [*OFFICIAL_TEMPLATE_IDE_KEYS, "auto", "all"]
 
 
 def _ide_choices_for_template_url(template_url: str) -> list[str] | None:
@@ -40,9 +40,12 @@ def _ide_argument_help(*, parse_time_restricted: bool) -> str:
     keys = _official_ide_keys_with_all()
     listed = ", ".join(keys)
     base = (
-        f"IDE key: {listed}. "
+        f"One or more IDE keys: {listed}. "
         "Each key selects file paths from the resolved template’s .metadata/skills-map.json; "
-        "all copies the union of all IDE file lists."
+        "multiple keys merge those lists in order without duplicate paths. "
+        "The key auto selects one IDE using that template’s .metadata/ide-detection.json and "
+        "file or directory markers under the current working directory; it must be used alone. "
+        "The special key all copies the union of every IDE’s file list and must be used alone."
     )
     if parse_time_restricted:
         return base + f" With the default --template-url ({DEFAULT_TEMPLATE_URL}), only these values are accepted."
@@ -56,7 +59,7 @@ def _ide_argument_help(*, parse_time_restricted: bool) -> str:
 @dataclass(frozen=True)
 class CliOptions:
     template_url: str
-    ide: str
+    ide: tuple[str, ...]
     template_branch: str
     extend: str | None
     extend_branch: str
@@ -87,9 +90,17 @@ Default --template-url is the official Spectask GitHub repository (.git); use a 
         help=f"Template source (ZIP or Git). Default: {DEFAULT_TEMPLATE_URL}",
     )
     if ide_choices is not None:
-        p.add_argument("--ide", required=True, choices=ide_choices, help=ide_help)
+        p.add_argument(
+            "--ide",
+            required=False,
+            nargs="+",
+            default=None,
+            choices=ide_choices,
+            metavar="IDE",
+            help=ide_help,
+        )
     else:
-        p.add_argument("--ide", required=True, metavar="IDE", help=ide_help)
+        p.add_argument("--ide", required=False, nargs="+", default=None, metavar="IDE", help=ide_help)
     p.add_argument("--template-branch", default="main", help="Git branch for template URL when not ZIP (default: main).")
     p.add_argument("--extend", default=None, help="Optional overlay source (ZIP or Git) for spec/extend/.")
     p.add_argument("--extend-branch", default="main", help="Git branch for --extend when not ZIP (default: main).")
@@ -100,6 +111,15 @@ Default --template-url is the official Spectask GitHub repository (.git); use a 
         help=(
             "Do not copy spec/navigation.md from required-list. "
             "Advanced merge use case; Spectask normally expects this file."
+        ),
+    )
+    p.add_argument(
+        "--update",
+        action="store_true",
+        help=(
+            "Apply --skip-example and --skip-navigation-file. "
+            "When --ide is omitted, default to auto (same as --ide auto). "
+            "Explicit --ide values are unchanged."
         ),
     )
     return p
@@ -113,14 +133,24 @@ def parse_args(argv: list[str] | None = None) -> CliOptions:
         ide_help=_ide_argument_help(parse_time_restricted=restricted),
     )
     ns = p.parse_args(argv)
+    if ns.ide is None:
+        if not ns.update:
+            p.error("--ide is required unless --update is passed")
+        ns.ide = ["auto"]
+    if "auto" in ns.ide and len(ns.ide) > 1:
+        p.error("'auto' cannot be combined with other --ide values")
+    if "all" in ns.ide and len(ns.ide) > 1:
+        p.error("'all' cannot be combined with other --ide values")
+    skip_example = ns.skip_example or ns.update
+    skip_navigation_file = ns.skip_navigation_file or ns.update
     return CliOptions(
         template_url=ns.template_url,
-        ide=ns.ide,
+        ide=tuple(ns.ide),
         template_branch=ns.template_branch,
         extend=ns.extend,
         extend_branch=ns.extend_branch,
-        skip_example=ns.skip_example,
-        skip_navigation_file=ns.skip_navigation_file,
+        skip_example=skip_example,
+        skip_navigation_file=skip_navigation_file,
     )
 
 

@@ -17,6 +17,11 @@ EXTEND_OVERLAY = Path("spec/extend/0-misc.md")
 CURSOR_SKILL = Path(".cursor/skills/spectask-create/SKILL.md")
 
 
+def _mkdir_for_cursor_ide_auto(tmp_path: Path) -> None:
+    """CWD layout so noant/spectask main ZIP resolves ``--ide auto`` to cursor (see .metadata/ide-detection.json)."""
+    (tmp_path / ".cursor").mkdir()
+
+
 def _run_main(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, argv: list[str]) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(sys, "argv", ["spectask-init", *argv])
@@ -169,11 +174,75 @@ def test_skip_navigation_file_omits_navigation(tmp_path, monkeypatch) -> None:
 
 
 @pytest.mark.integration
+def test_update_with_explicit_ide_skips_example_and_navigation(tmp_path, monkeypatch) -> None:
+    _run_main(
+        monkeypatch,
+        tmp_path,
+        ["--template-url", TEMPLATE_ZIP, "--update", "--ide", "cursor"],
+    )
+    assert not (tmp_path / EXAMPLE_ONLY).exists()
+    assert (tmp_path / "spec/main.md").is_file()
+    assert (tmp_path / "spec/design/hla.md").is_file()
+    assert not (tmp_path / "spec/navigation.md").exists()
+
+
+@pytest.mark.integration
+def test_ide_auto_zip_resolves_cursor(tmp_path, monkeypatch) -> None:
+    _mkdir_for_cursor_ide_auto(tmp_path)
+    _run_main(
+        monkeypatch,
+        tmp_path,
+        ["--template-url", TEMPLATE_ZIP, "--ide", "auto"],
+    )
+    _assert_baseline(tmp_path)
+    assert (tmp_path / CURSOR_SKILL).is_file()
+
+
+@pytest.mark.integration
+def test_ide_auto_zip_fails_without_markers(tmp_path, monkeypatch, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["spectask-init", "--template-url", TEMPLATE_ZIP, "--ide", "auto"])
+    with pytest.raises(SystemExit) as excinfo:
+        main()
+    assert excinfo.value.code == 1
+    err = capsys.readouterr().err
+    assert "--ide all" in err
+    assert "no markers matched" in err
+    assert "cursor" in err
+
+
+@pytest.mark.integration
+def test_update_only_zip_defaults_ide_auto(tmp_path, monkeypatch) -> None:
+    _mkdir_for_cursor_ide_auto(tmp_path)
+    _run_main(
+        monkeypatch,
+        tmp_path,
+        ["--template-url", TEMPLATE_ZIP, "--update"],
+    )
+    assert not (tmp_path / EXAMPLE_ONLY).exists()
+    assert (tmp_path / "spec/main.md").is_file()
+    assert (tmp_path / "spec/design/hla.md").is_file()
+    assert not (tmp_path / "spec/navigation.md").exists()
+    assert (tmp_path / CURSOR_SKILL).is_file()
+
+
+@pytest.mark.integration
 def test_ide_all_copies_union(tmp_path, monkeypatch) -> None:
     _run_main(
         monkeypatch,
         tmp_path,
         ["--template-url", TEMPLATE_ZIP, "--ide", "all"],
+    )
+    assert (tmp_path / CURSOR_SKILL).is_file()
+    assert (tmp_path / "CLAUDE.md").is_file()
+
+
+@pytest.mark.integration
+def test_ide_multiple_keys_merges_subset(tmp_path, monkeypatch) -> None:
+    _run_main(
+        monkeypatch,
+        tmp_path,
+        ["--template-url", TEMPLATE_ZIP, "--ide", "cursor", "claude-code"],
     )
     assert (tmp_path / CURSOR_SKILL).is_file()
     assert (tmp_path / "CLAUDE.md").is_file()

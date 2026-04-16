@@ -1,30 +1,89 @@
 # spectask-init
 
-Python3.10+ CLI to bootstrap [Spectask](https://github.com/noant/spectask)-style template files into the **current working directory** (ZIP or Git sources, optional `spec/extend` overlay, IDE paths from `skills-map.json`).
+Python3.10+ CLI to bootstrap [Spectask](https://github.com/noant/spectask)-style template files into the **current working directory**: fetch a template (ZIP or Git), copy required paths and IDE-specific files from `.metadata/skills-map.json`, and optionally merge a `spec/extend` overlay.
 
-The PyPI project and console command are **`spectask-init`**.
+The PyPI project and console command are **`spectask-init`**. Run it from the directory that should receive the files (the tool uses your shell’s current working directory).
 
 ## Use with uvx (recommended)
 
 [`uvx`](https://docs.astral.sh/uv/guides/tools/) runs the tool from PyPI without a permanent install. Install [**uv**](https://docs.astral.sh/uv/getting-started/installation/) first (it includes `uvx`).
 
 ```bash
-uvx spectask-init --ide <key>
-```
-
-Examples:
-
-```bash
-uvx spectask-init --ide cursor
-uvx spectask-init --ide cursor --template-branch main
 uvx spectask-init --help
+uvx spectask-init --ide cursor
 ```
 
 **Requirements:**
 
-- Network access (PyPI).
+- Network access (PyPI and template download).
 - After the package is published, the command resolves **`spectask-init`** from [PyPI](https://pypi.org/project/spectask-init/). Until then, install from this repo (see below).
-- For **Git** template URLs (not ending in `.zip`), `git` must be on your `PATH`.
+- For **Git** URLs (template or extend) that are **not** `.zip` archives, `git` must be on your `PATH`.
+
+## CLI options
+
+| Option | Purpose |
+|--------|---------|
+| **`--ide`** | Which IDE(s) to install files for. Each value picks paths from the template’s `.metadata/skills-map.json`. You can pass **several** keys to merge lists (order preserved, duplicates dropped). **`auto`** picks one IDE using `.metadata/ide-detection.json` and markers in the **current directory** (must be used alone). **`all`** installs the union of every IDE’s files (must be used alone). **Required** unless you pass **`--update`** (then it defaults to `auto`). |
+| **`--template-url`** | Where to fetch the template from: **`.zip` URL** (download + extract) or **Git** URL (clone). Default is the official Spectask repo (`.git`). A **ZIP** avoids needing `git` for the template step. |
+| **`--template-branch`** | Git branch for **`--template-url`** when it is **not** a ZIP (default: `main`). Ignored for ZIP URLs. |
+| **`--extend`** | Optional second source (ZIP or Git) merged into **`spec/extend/`** after the main template. |
+| **`--extend-branch`** | Git branch for **`--extend`** when it is **not** a ZIP (default: `main`). |
+| **`--skip-example`** | Do not copy paths listed in the template’s example list (keeps the tree minimal). |
+| **`--skip-navigation-file`** | Do not copy **`spec/navigation.md`**. For advanced workflows; a normal Spectask tree usually keeps this file. |
+| **`--update`** | Shorthand for **`--skip-example`** and **`--skip-navigation-file`**. If you **omit** **`--ide`**, it behaves like **`--ide auto`** (detection from the template + your cwd). If you pass **`--ide`**, only the skip behavior is combined with your IDE choice. |
+
+With the **default** **`--template-url`**, **`--ide`** must be one of: **`cursor`**, **`claude-code`**, **`qwen-code`**, **`qoder`**, **`windsurf`**, **`auto`**, or **`all`**. With a **custom** template URL, any IDE name present in that template’s **`skills-map.json`** is allowed (and **`auto`** / **`all`** follow the same rules if the template supports them).
+
+## Examples
+
+**New project, explicit IDE (default template over Git):**
+
+```bash
+uvx spectask-init --ide cursor
+```
+
+**Detect IDE from the current folder** (template ships marker rules; your project should match one IDE, e.g. a `.cursor` directory for Cursor on the official template):
+
+```bash
+uvx spectask-init --ide auto
+```
+
+**Install files for every IDE defined in the template:**
+
+```bash
+uvx spectask-init --ide all
+```
+
+**Merge paths from two IDE keys** (e.g. Cursor + Claude Code):
+
+```bash
+uvx spectask-init --ide cursor claude-code
+```
+
+**Use a ZIP template** (no `git` for the template fetch):
+
+```bash
+uvx spectask-init --template-url https://github.com/noant/spectask/archive/refs/heads/main.zip --ide cursor
+```
+
+**Refresh an existing Spectask tree** (skip example tasks and navigation file; default IDE = `auto`):
+
+```bash
+uvx spectask-init --update
+```
+
+Same refresh but force a specific IDE:
+
+```bash
+uvx spectask-init --update --ide cursor
+```
+
+**Add the main template and an extend overlay** (extend can be Git or ZIP):
+
+```bash
+uvx spectask-init --ide cursor \
+  --extend https://github.com/noant/spectask-my-extend.git --extend-branch main
+```
 
 ## Install from source
 
@@ -32,15 +91,15 @@ uvx spectask-init --help
 git clone <this-repo-url>
 cd spectask-cli
 pip install .
-spectask-init --ide <key>
-# or: python -m spectask_init --ide <key>
+spectask-init --ide cursor
+# or: python -m spectask_init --ide cursor
 ```
 
 ## pip install (global / venv)
 
 ```bash
 pip install spectask-init
-spectask-init --ide <key>
+spectask-init --ide cursor
 ```
 
 ## Installing uv (quick reference)
