@@ -6,12 +6,15 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
+import yaml
 
 from spectask_init.bootstrap import (
     apply_template_migration,
     copy_into_cwd,
     ide_files_for,
     load_json,
+    merge_extend_source_navigation,
+    reconcile_navigation_with_spec_tree,
     resolve_auto_ide_keys,
     run_template_bootstrap,
 )
@@ -288,6 +291,16 @@ def test_copy_into_cwd_rejects_escape(tmp_path, monkeypatch) -> None:
         copy_into_cwd(root, "../outside/secret.txt")
 
 
+def _minimal_template_navigation_yaml() -> str:
+    return (
+        "version: 1\n"
+        "extend: []\n"
+        "design:\n"
+        "  - path: spec/design/hla.md\n"
+        "    description: Template HLA registry entry\n"
+    )
+
+
 def _minimal_template_root(tmp_path: Path) -> Path:
     root = tmp_path / "tpl"
     meta = root / ".metadata"
@@ -312,7 +325,7 @@ def _minimal_template_root(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     (root / "spec").mkdir(parents=True)
-    (root / "spec" / "navigation.yaml").write_text("tpl-nav\n", encoding="utf-8")
+    (root / "spec" / "navigation.yaml").write_text(_minimal_template_navigation_yaml(), encoding="utf-8")
     (root / "spec" / "design").mkdir()
     (root / "spec" / "design" / "hla.md").write_text("tpl-hla\n", encoding="utf-8")
     (root / "only-cursor.md").write_text("skill\n", encoding="utf-8")
@@ -404,7 +417,14 @@ def test_preflight_skip_navigation_allows_existing_navigation(tmp_path: Path, mo
     proj.mkdir()
     monkeypatch.chdir(proj)
     (proj / "spec").mkdir()
-    (proj / "spec" / "navigation.yaml").write_text("keep-me\n", encoding="utf-8")
+    kept_nav = (
+        "version: 1\n"
+        "extend: []\n"
+        "design:\n"
+        "  - path: spec/design/hla.md\n"
+        "    description: user-kept\n"
+    )
+    (proj / "spec" / "navigation.yaml").write_text(kept_nav, encoding="utf-8")
     monkeypatch.setattr("spectask_init.bootstrap.acquire_source", _fake_acquire_root(tpl))
     run_template_bootstrap(
         template_url="https://example.com/x.zip",
@@ -414,7 +434,7 @@ def test_preflight_skip_navigation_allows_existing_navigation(tmp_path: Path, mo
         skip_hla_file=False,
         template_branch="main",
     )
-    assert (proj / "spec" / "navigation.yaml").read_text(encoding="utf-8") == "keep-me\n"
+    assert (proj / "spec" / "navigation.yaml").read_text(encoding="utf-8") == kept_nav
     assert (proj / "spec" / "design" / "hla.md").read_text(encoding="utf-8") == "tpl-hla\n"
 
 
@@ -436,7 +456,9 @@ def test_preflight_skip_hla_allows_existing_hla(tmp_path: Path, monkeypatch: pyt
         template_branch="main",
     )
     assert (proj / "spec" / "design" / "hla.md").read_text(encoding="utf-8") == "keep-me\n"
-    assert (proj / "spec" / "navigation.yaml").read_text(encoding="utf-8") == "tpl-nav\n"
+    assert yaml.safe_load((proj / "spec" / "navigation.yaml").read_text(encoding="utf-8")) == yaml.safe_load(
+        _minimal_template_navigation_yaml(),
+    )
 
 
 def _migration_file(meta: Path, data: dict) -> None:
@@ -639,3 +661,278 @@ def test_run_template_bootstrap_runs_migration(tmp_path: Path, monkeypatch: pyte
     )
     assert (proj / "kept.txt").read_text(encoding="utf-8") == "L"
     assert not (proj / "legacy.txt").exists()
+
+
+def test_merge_extend_source_navigation_appends_new_paths(tmp_path: Path) -> None:
+    proj = tmp_path / "proj"
+    ext = tmp_path / "ext"
+    (proj / "spec").mkdir(parents=True)
+    (ext / "spec").mkdir(parents=True)
+    (proj / "spec" / "navigation.yaml").write_text(
+        "version: 1\n"
+        "extend:\n"
+        "  - path: spec/extend/a.md\n"
+        "    description: keep me\n"
+        "design: []\n",
+        encoding="utf-8",
+    )
+    (ext / "spec" / "navigation.yaml").write_text(
+        "version: 1\n"
+        "extend:\n"
+        "  - path: spec/extend/a.md\n"
+        "    description: extend try overwrite\n"
+        "  - path: spec/extend/b.md\n"
+        "    description: brand new\n",
+        encoding="utf-8",
+    )
+    err = io.StringIO()
+    merge_extend_source_navigation(cwd=proj, extend_root=ext, stderr=err)
+    text = (proj / "spec" / "navigation.yaml").read_text(encoding="utf-8")
+    assert "spec/extend/b.md" in text
+    assert "keep me" in text
+    assert "extend try overwrite" not in text
+    assert err.getvalue() == ""
+
+
+def test_merge_extend_source_navigation_normalizes_paths_for_dedup(tmp_path: Path) -> None:
+    proj = tmp_path / "proj"
+    ext = tmp_path / "ext"
+    (proj / "spec").mkdir(parents=True)
+    (ext / "spec").mkdir(parents=True)
+    (proj / "spec" / "navigation.yaml").write_text(
+        "extend:\n  - path: spec/extend/a.md\n",
+        encoding="utf-8",
+    )
+    (ext / "spec" / "navigation.yaml").write_text(
+        "extend:\n  - path: ./spec/extend/a.md\n    description: dup\n",
+        encoding="utf-8",
+    )
+    err = io.StringIO()
+    merge_extend_source_navigation(cwd=proj, extend_root=ext, stderr=err)
+    text = (proj / "spec" / "navigation.yaml").read_text(encoding="utf-8")
+    assert text.count("spec/extend/a.md") == 1
+    assert "dup" not in text
+    assert err.getvalue() == ""
+
+
+def test_merge_extend_source_navigation_warns_when_source_has_design(tmp_path: Path) -> None:
+    proj = tmp_path / "proj"
+    ext = tmp_path / "ext"
+    (proj / "spec").mkdir(parents=True)
+    (ext / "spec").mkdir(parents=True)
+    (proj / "spec" / "navigation.yaml").write_text(
+        "extend:\n  - path: spec/extend/a.md\n",
+        encoding="utf-8",
+    )
+    (ext / "spec" / "navigation.yaml").write_text(
+        "extend: []\n"
+        "design:\n"
+        "  - path: spec/design/hla.md\n"
+        "    description: x\n",
+        encoding="utf-8",
+    )
+    err = io.StringIO()
+    merge_extend_source_navigation(cwd=proj, extend_root=ext, stderr=err)
+    assert "design entries" in err.getvalue()
+    assert "not copied" in err.getvalue()
+
+
+def test_merge_extend_source_navigation_skips_without_cwd_nav(tmp_path: Path) -> None:
+    proj = tmp_path / "proj"
+    ext = tmp_path / "ext"
+    proj.mkdir()
+    (ext / "spec").mkdir(parents=True)
+    (ext / "spec" / "navigation.yaml").write_text("extend: []\n", encoding="utf-8")
+    err = io.StringIO()
+    merge_extend_source_navigation(cwd=proj, extend_root=ext, stderr=err)
+    assert not (proj / "spec" / "navigation.yaml").exists()
+    assert err.getvalue() == ""
+
+
+def test_merge_extend_source_navigation_invalid_yaml_raises(tmp_path: Path) -> None:
+    proj = tmp_path / "proj"
+    ext = tmp_path / "ext"
+    (proj / "spec").mkdir(parents=True)
+    (ext / "spec").mkdir(parents=True)
+    (proj / "spec" / "navigation.yaml").write_text("extend: [", encoding="utf-8")
+    (ext / "spec" / "navigation.yaml").write_text("extend: []\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="Invalid YAML"):
+        merge_extend_source_navigation(cwd=proj, extend_root=ext, stderr=io.StringIO())
+
+
+def test_reconcile_navigation_skips_when_navigation_missing(tmp_path: Path) -> None:
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    err = io.StringIO()
+    reconcile_navigation_with_spec_tree(proj, stderr=err)
+    assert err.getvalue() == ""
+
+
+def test_reconcile_navigation_appends_extend_placeholder_and_warns(tmp_path: Path) -> None:
+    proj = tmp_path / "proj"
+    (proj / "spec" / "extend").mkdir(parents=True)
+    (proj / "spec" / "extend" / "extra.md").write_text("x", encoding="utf-8")
+    (proj / "spec" / "navigation.yaml").write_text(
+        "version: 1\n"
+        "extend:\n"
+        "  - path: spec/extend/listed.md\n"
+        "    description: ok\n"
+        "design: []\n",
+        encoding="utf-8",
+    )
+    (proj / "spec" / "extend" / "listed.md").write_text("y", encoding="utf-8")
+    err = io.StringIO()
+    reconcile_navigation_with_spec_tree(proj, stderr=err)
+    doc = yaml.safe_load((proj / "spec" / "navigation.yaml").read_text(encoding="utf-8"))
+    paths = [row["path"] for row in doc["extend"]]
+    assert paths == ["spec/extend/listed.md", "spec/extend/extra.md"]
+    assert doc["extend"][1]["description"] == "additional conventions"
+    assert "spec/extend/extra.md" in err.getvalue()
+    assert "placeholder description" in err.getvalue()
+
+
+def test_reconcile_navigation_removes_stale_row_and_warns(tmp_path: Path) -> None:
+    proj = tmp_path / "proj"
+    (proj / "spec" / "extend").mkdir(parents=True)
+    (proj / "spec" / "extend" / "here.md").write_text("x", encoding="utf-8")
+    (proj / "spec" / "navigation.yaml").write_text(
+        "version: 1\n"
+        "extend:\n"
+        "  - path: spec/extend/gone.md\n"
+        "    description: stale\n"
+        "  - path: spec/extend/here.md\n"
+        "    description: ok\n"
+        "design: []\n",
+        encoding="utf-8",
+    )
+    err = io.StringIO()
+    reconcile_navigation_with_spec_tree(proj, stderr=err)
+    doc = yaml.safe_load((proj / "spec" / "navigation.yaml").read_text(encoding="utf-8"))
+    assert [row["path"] for row in doc["extend"]] == ["spec/extend/here.md"]
+    assert "missing file" in err.getvalue()
+    assert "spec/extend/gone.md" in err.getvalue()
+
+
+def test_reconcile_navigation_adds_design_section_when_key_missing(tmp_path: Path) -> None:
+    proj = tmp_path / "proj"
+    (proj / "spec" / "design").mkdir(parents=True)
+    (proj / "spec" / "design" / "hla.md").write_text("h", encoding="utf-8")
+    (proj / "spec" / "navigation.yaml").write_text(
+        "version: 1\n"
+        "extend: []\n",
+        encoding="utf-8",
+    )
+    err = io.StringIO()
+    reconcile_navigation_with_spec_tree(proj, stderr=err)
+    doc = yaml.safe_load((proj / "spec" / "navigation.yaml").read_text(encoding="utf-8"))
+    assert "design" in doc
+    assert doc["design"][0]["path"] == "spec/design/hla.md"
+    assert doc["design"][0]["description"] == "additional design document"
+    assert "placeholder description" in err.getvalue()
+
+
+def test_reconcile_navigation_removes_missing_hla_row(tmp_path: Path) -> None:
+    proj = tmp_path / "proj"
+    (proj / "spec").mkdir(parents=True)
+    (proj / "spec" / "navigation.yaml").write_text(
+        "version: 1\n"
+        "extend: []\n"
+        "design:\n"
+        "  - path: spec/design/hla.md\n"
+        "    description: missing file\n",
+        encoding="utf-8",
+    )
+    err = io.StringIO()
+    reconcile_navigation_with_spec_tree(proj, stderr=err)
+    doc = yaml.safe_load((proj / "spec" / "navigation.yaml").read_text(encoding="utf-8"))
+    assert doc["design"] == []
+    assert "spec/design/hla.md" in err.getvalue()
+
+
+def test_reconcile_navigation_appends_new_extend_paths_sorted(tmp_path: Path) -> None:
+    proj = tmp_path / "proj"
+    (proj / "spec" / "extend").mkdir(parents=True)
+    for name in ("z.md", "a.md", "m.md"):
+        (proj / "spec" / "extend" / name).write_text("x", encoding="utf-8")
+    (proj / "spec" / "navigation.yaml").write_text(
+        "version: 1\n"
+        "extend:\n"
+        "  - path: spec/extend/z.md\n"
+        "    description: keep order\n"
+        "design: []\n",
+        encoding="utf-8",
+    )
+    reconcile_navigation_with_spec_tree(proj, stderr=io.StringIO())
+    doc = yaml.safe_load((proj / "spec" / "navigation.yaml").read_text(encoding="utf-8"))
+    assert [row["path"] for row in doc["extend"]] == [
+        "spec/extend/z.md",
+        "spec/extend/a.md",
+        "spec/extend/m.md",
+    ]
+
+
+def test_run_template_bootstrap_reconciles_after_migration_moves_extend_doc(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tpl = tmp_path / "tpl"
+    meta = tpl / ".metadata"
+    meta.mkdir(parents=True)
+    (meta / "required-list.json").write_text(
+        json.dumps(
+            {
+                "required": [
+                    "spec/navigation.yaml",
+                    "spec/design/hla.md",
+                    "spec/extend/legacy.md",
+                ],
+            },
+        ),
+        encoding="utf-8",
+    )
+    (meta / "example-list.json").write_text(json.dumps({"examples": []}), encoding="utf-8")
+    (meta / "skills-map.json").write_text(
+        json.dumps({"ides": [{"name": "cursor", "paths": ["only-cursor.md"]}]}),
+        encoding="utf-8",
+    )
+    _migration_file(
+        meta,
+        {"move": [{"from": "spec/extend/legacy.md", "to": "spec/extend/current.md"}]},
+    )
+    (tpl / "spec").mkdir(parents=True)
+    (tpl / "spec" / "design").mkdir(parents=True)
+    (tpl / "spec" / "design" / "hla.md").write_text("h\n", encoding="utf-8")
+    (tpl / "spec" / "extend").mkdir(parents=True)
+    (tpl / "spec" / "extend" / "legacy.md").write_text("body\n", encoding="utf-8")
+    (tpl / "spec" / "navigation.yaml").write_text(
+        "version: 1\n"
+        "extend:\n"
+        "  - path: spec/extend/legacy.md\n"
+        "    description: before migration\n"
+        "design:\n"
+        "  - path: spec/design/hla.md\n"
+        "    description: HLA\n",
+        encoding="utf-8",
+    )
+    (tpl / "only-cursor.md").write_text("skill\n", encoding="utf-8")
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    monkeypatch.chdir(proj)
+    monkeypatch.setattr("spectask_init.bootstrap.acquire_source", _fake_acquire_root(tpl))
+    err = io.StringIO()
+    run_template_bootstrap(
+        template_url="https://example.com/x.zip",
+        ide=("cursor",),
+        skip_example=True,
+        skip_navigation_file=False,
+        skip_hla_file=False,
+        template_branch="main",
+        stderr=err,
+    )
+    text = (proj / "spec" / "navigation.yaml").read_text(encoding="utf-8")
+    assert "spec/extend/current.md" in text
+    assert "spec/extend/legacy.md" not in text
+    assert "additional conventions" in text
+    assert (proj / "spec" / "extend" / "current.md").read_text(encoding="utf-8") == "body\n"
+    assert "missing file" in err.getvalue()

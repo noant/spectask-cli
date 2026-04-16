@@ -177,6 +177,7 @@ def main() -> None:
             skip_navigation_file=opts.skip_navigation_file,
             skip_hla_file=opts.skip_hla_file,
             template_branch=opts.template_branch,
+            stderr=sys.stderr,
         )
     except (OSError, RuntimeError, zipfile.BadZipFile) as e:
         print(f"spectask-init: {e}", file=sys.stderr)
@@ -184,7 +185,7 @@ def main() -> None:
 
     if opts.extend:
         try:
-            run_extend(extend_url=opts.extend, extend_branch=opts.extend_branch)
+            run_extend(extend_url=opts.extend, extend_branch=opts.extend_branch, stderr=sys.stderr)
         except (OSError, RuntimeError, zipfile.BadZipFile) as e:
             print(f"spectask-init: {e}", file=sys.stderr)
             sys.exit(1)

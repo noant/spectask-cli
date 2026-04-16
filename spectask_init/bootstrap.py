@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import copy
 import json
+import os
 import shutil
 import sys
+import tempfile
 import uuid
 from collections.abc import Sequence
 from pathlib import Path, PurePosixPath
 from typing import Any, TextIO
+
+import yaml
 
 from spectask_init.acquire import acquire_source
 
@@ -39,6 +44,279 @@ def load_json(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise RuntimeError(f"Expected JSON object at root in {path}")
     return data
+
+
+def _load_yaml_document(path: Path) -> Any:
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as e:
+        raise RuntimeError(f"Cannot read {path}: {e}") from e
+    try:
+        return yaml.safe_load(raw)
+    except yaml.YAMLError as e:
+        raise RuntimeError(f"Invalid YAML in {path}: {e}") from e
+
+
+def _navigation_root_mapping(data: Any, *, path: Path) -> dict[str, Any]:
+    if not isinstance(data, dict):
+        raise RuntimeError(f"{path}: expected a mapping at root, not {type(data).__name__}")
+    return data
+
+
+def _normalize_extend_registry_path(rel: str, *, nav_file: Path, context: str) -> str:
+    if not isinstance(rel, str) or not rel:
+        raise RuntimeError(f"{nav_file}: {context}: 'path' must be a non-empty string")
+    p = PurePosixPath(rel.replace("\\", "/"))
+    if p.is_absolute():
+        raise RuntimeError(f"{nav_file}: {context}: path must be relative, got {rel!r}")
+    if ".." in p.parts:
+        raise RuntimeError(f"{nav_file}: {context}: path must not contain '..': {rel!r}")
+    return str(p)
+
+
+def _parse_registry_section(
+    data: dict[str, Any],
+    *,
+    nav_file: Path,
+    key: str,
+) -> tuple[bool, list[dict[str, Any]]]:
+    """Return whether ``key`` is present and a validated list of row mappings."""
+    if key not in data:
+        return False, []
+    raw = data[key]
+    if raw is None:
+        raise RuntimeError(f"{nav_file}: {key!r} must be a list if present, not null")
+    if not isinstance(raw, list):
+        raise RuntimeError(f"{nav_file}: {key!r} must be a list")
+    out: list[dict[str, Any]] = []
+    for i, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise RuntimeError(f"{nav_file}: {key}[{i}] must be a mapping")
+        p = item.get("path")
+        if not isinstance(p, str) or not p:
+            raise RuntimeError(f"{nav_file}: {key}[{i}] must have a non-empty string 'path'")
+        _normalize_extend_registry_path(p, nav_file=nav_file, context=f"{key}[{i}]")
+        out.append(item)
+    return True, out
+
+
+def _validated_extend_entries(data: dict[str, Any], *, nav_file: Path) -> list[dict[str, Any]]:
+    _, items = _parse_registry_section(data, nav_file=nav_file, key="extend")
+    return items
+
+
+def _source_has_non_empty_design_list(data: dict[str, Any], *, nav_file: Path) -> bool:
+    explicit, items = _parse_registry_section(data, nav_file=nav_file, key="design")
+    return explicit and len(items) > 0
+
+
+def _write_navigation_yaml_atomic(target: Path, data: dict[str, Any]) -> None:
+    text = yaml.safe_dump(
+        data,
+        default_flow_style=False,
+        allow_unicode=True,
+        sort_keys=False,
+    )
+    if not text.endswith("\n"):
+        text += "\n"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(
+        dir=target.parent,
+        prefix=".navigation-",
+        suffix=".yaml.tmp",
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+        os.replace(tmp_path, target)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def merge_extend_source_navigation(
+    *,
+    cwd: Path,
+    extend_root: Path,
+    stderr: TextIO,
+) -> None:
+    """Merge ``extend:`` from ``extend_root/spec/navigation.yaml`` into cwd registry if both exist."""
+    cwd_nav = (cwd / NAVIGATION_FILE_RELPATH).resolve()
+    src_nav = (extend_root / "spec" / "navigation.yaml").resolve()
+    if not cwd_nav.is_file():
+        return
+    if not src_nav.is_file():
+        return
+
+    cwd_doc = _navigation_root_mapping(_load_yaml_document(cwd_nav), path=cwd_nav)
+    src_doc = _navigation_root_mapping(_load_yaml_document(src_nav), path=src_nav)
+
+    cwd_extend = _validated_extend_entries(cwd_doc, nav_file=cwd_nav)
+    src_extend = _validated_extend_entries(src_doc, nav_file=src_nav)
+
+    if _source_has_non_empty_design_list(src_doc, nav_file=src_nav):
+        print(
+            "spectask-init: warning: extend source spec/navigation.yaml lists design entries; "
+            "those are not merged into this project, and spec/design files are not copied from "
+            "the extend bundle. --extend only adds files under spec/extend/ plus extend: registry "
+            "entries from the source navigation file.",
+            file=stderr,
+        )
+
+    merged_extend: list[dict[str, Any]] = [copy.deepcopy(x) for x in cwd_extend]
+    seen: set[str] = set()
+    for i, item in enumerate(merged_extend):
+        seen.add(
+            _normalize_extend_registry_path(
+                item["path"],
+                nav_file=cwd_nav,
+                context=f"extend[{i}]",
+            ),
+        )
+
+    appended = False
+    for i, item in enumerate(src_extend):
+        key = _normalize_extend_registry_path(
+            item["path"],
+            nav_file=src_nav,
+            context=f"extend[{i}]",
+        )
+        if key not in seen:
+            merged_extend.append(copy.deepcopy(item))
+            seen.add(key)
+            appended = True
+
+    if not appended:
+        return
+
+    merged_doc = copy.deepcopy(cwd_doc)
+    merged_doc["extend"] = merged_extend
+    _write_navigation_yaml_atomic(cwd_nav, merged_doc)
+
+
+def _reconcile_registry_list(
+    *,
+    entries: list[dict[str, Any]],
+    disk_paths: set[str],
+    project_root: Path,
+    nav_file: Path,
+    section_name: str,
+    placeholder_description: str,
+    stderr: TextIO,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Drop rows whose files are missing; append on-disk paths not yet listed. Preserve row order."""
+    dirty = False
+    retained: list[dict[str, Any]] = []
+    retained_paths: set[str] = set()
+    for i, item in enumerate(entries):
+        norm = _normalize_extend_registry_path(
+            item["path"],
+            nav_file=nav_file,
+            context=f"{section_name}[{i}]",
+        )
+        target = project_root.joinpath(*PurePosixPath(norm).parts)
+        if target.is_file():
+            retained.append(item)
+            retained_paths.add(norm)
+            continue
+        print(
+            f"spectask-init: warning: navigation registry path {norm!r} in {section_name!r} "
+            f"points to a missing file; the entry was removed from {NAVIGATION_FILE_RELPATH}.",
+            file=stderr,
+        )
+        dirty = True
+
+    additions: list[dict[str, Any]] = []
+    for norm in sorted(disk_paths - retained_paths):
+        additions.append({"path": norm, "description": placeholder_description})
+        print(
+            f"spectask-init: warning: {norm!r} was not listed in {NAVIGATION_FILE_RELPATH} "
+            f"under {section_name!r}; it was added with a placeholder description. "
+            f"Edit the `description` field for this path in {NAVIGATION_FILE_RELPATH}.",
+            file=stderr,
+        )
+        dirty = True
+
+    return retained + additions, dirty
+
+
+def reconcile_navigation_with_spec_tree(cwd: Path, stderr: TextIO | None = None) -> None:
+    """Sync ``extend:`` / ``design:`` in ``spec/navigation.yaml`` with ``spec/extend/**/*.md`` and ``spec/design/*.md``."""
+    err = stderr if stderr is not None else sys.stderr
+    nav_path = (cwd / NAVIGATION_FILE_RELPATH).resolve()
+    if not nav_path.is_file():
+        return
+
+    project_root = cwd.resolve()
+    disk_extend: set[str] = set()
+    ext_dir = project_root / "spec" / "extend"
+    if ext_dir.is_dir():
+        for p in ext_dir.rglob("*.md"):
+            if p.is_file():
+                rel = p.resolve().relative_to(project_root).as_posix()
+                disk_extend.add(
+                    _normalize_extend_registry_path(
+                        rel,
+                        nav_file=nav_path,
+                        context="spec/extend",
+                    ),
+                )
+
+    disk_design: set[str] = set()
+    design_dir = project_root / "spec" / "design"
+    if design_dir.is_dir():
+        for p in design_dir.glob("*.md"):
+            if p.is_file():
+                rel = p.resolve().relative_to(project_root).as_posix()
+                disk_design.add(
+                    _normalize_extend_registry_path(
+                        rel,
+                        nav_file=nav_path,
+                        context="spec/design",
+                    ),
+                )
+
+    doc = _navigation_root_mapping(_load_yaml_document(nav_path), path=nav_path)
+    extend_explicit, extend_entries = _parse_registry_section(doc, nav_file=nav_path, key="extend")
+    design_explicit, design_entries = _parse_registry_section(doc, nav_file=nav_path, key="design")
+
+    new_extend, dirty_extend = _reconcile_registry_list(
+        entries=extend_entries,
+        disk_paths=disk_extend,
+        project_root=project_root,
+        nav_file=nav_path,
+        section_name="extend",
+        placeholder_description="additional conventions",
+        stderr=err,
+    )
+    new_design, dirty_design = _reconcile_registry_list(
+        entries=design_entries,
+        disk_paths=disk_design,
+        project_root=project_root,
+        nav_file=nav_path,
+        section_name="design",
+        placeholder_description="additional design document",
+        stderr=err,
+    )
+
+    dirty = dirty_extend or dirty_design
+    out_doc = copy.deepcopy(doc)
+    if extend_explicit or new_extend:
+        out_doc["extend"] = copy.deepcopy(new_extend)
+    elif "extend" in out_doc:
+        del out_doc["extend"]
+
+    if design_explicit or new_design:
+        out_doc["design"] = copy.deepcopy(new_design)
+    elif "design" in out_doc:
+        del out_doc["design"]
+
+    if not dirty:
+        return
+    _write_navigation_yaml_atomic(nav_path, out_doc)
 
 
 def _validate_migration_rel_path(rel: str, *, migration_file: Path, context: str) -> None:
@@ -488,7 +766,9 @@ def run_template_bootstrap(
     skip_navigation_file: bool,
     skip_hla_file: bool,
     template_branch: str,
+    stderr: TextIO | None = None,
 ) -> None:
+    err = stderr if stderr is not None else sys.stderr
     with acquire_source(template_url, git_branch=template_branch, layout="template") as template_root:
         meta = template_root / ".metadata"
         required_data = load_json(meta / "required-list.json")
@@ -528,7 +808,8 @@ def run_template_bootstrap(
         for rel in ide_files_for(skills, ide_effective):
             copy_into_cwd(template_root, rel)
 
-        apply_template_migration(template_root=template_root, cwd=Path.cwd())
+        apply_template_migration(template_root=template_root, cwd=Path.cwd(), stderr=err)
+        reconcile_navigation_with_spec_tree(Path.cwd(), stderr=err)
 
 
 def copy_extend_overlay(extend_root: Path) -> None:
@@ -545,8 +826,11 @@ def copy_extend_overlay(extend_root: Path) -> None:
         shutil.copy2(path, dest)
 
 
-def run_extend(*, extend_url: str | None, extend_branch: str) -> None:
+def run_extend(*, extend_url: str | None, extend_branch: str, stderr: TextIO | None = None) -> None:
     if not extend_url:
         return
+    err = stderr if stderr is not None else sys.stderr
     with acquire_source(extend_url, git_branch=extend_branch, layout="extend") as root:
+        merge_extend_source_navigation(cwd=Path.cwd(), extend_root=root, stderr=err)
         copy_extend_overlay(root)
+        reconcile_navigation_with_spec_tree(Path.cwd(), stderr=err)
