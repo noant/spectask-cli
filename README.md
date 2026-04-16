@@ -1,6 +1,6 @@
 # spectask-init
 
-Python3.10+ CLI to bootstrap [Spectask](https://github.com/noant/spectask)-style template files into the **current working directory**: fetch a template (ZIP or Git), copy required paths and IDE-specific files from `.metadata/skills-map.json`, and optionally merge a `spec/extend` overlay.
+**[Spectask](https://github.com/noant/spectask)** is the upstream methodology and template repository. This repo publishes the **`spectask-init`** CLI (Python 3.10+): it bootstraps Spectask-style files into the **current working directory**—fetch a template (ZIP or Git), copy required paths and IDE-specific files, and optionally merge a `spec/extend` overlay.
 
 The PyPI project and console command are **`spectask-init`**. Run it from the directory that should receive the files (the tool uses your shell’s current working directory).
 
