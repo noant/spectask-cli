@@ -1,0 +1,11 @@
+# Spectask navigation registry (see spec/main.md Folder Structure).
+# Register: spec/extend/* and spec/design/* entries.
+version: 1
+
+extend:
+  - path: spec/extend/example.md
+    description: Spec extension example.
+
+design:
+  - path: spec/design/hla.md
+    description: Project high-level architecture.
