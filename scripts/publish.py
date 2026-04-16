@@ -3,6 +3,8 @@
 
 Before building, bumps ``[project].version`` in ``pyproject.toml`` by incrementing
 the last dot-separated segment (must be decimal digits), then writes the file back.
+Stale ``*.whl`` and ``*.tar.gz`` files under ``dist/`` are removed before each
+``uv build`` so ``uv publish`` uploads only the fresh artifacts.
 
 Requires uv on PATH: https://docs.astral.sh/uv/
 
@@ -114,6 +116,18 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def remove_dist_build_artifacts(dist: Path) -> None:
+    """Delete ``*.whl`` and ``*.tar.gz`` directly under ``dist``; keep other files (e.g. ``.gitignore``)."""
+    if not dist.is_dir():
+        return
+    for p in dist.iterdir():
+        if not p.is_file():
+            continue
+        name = p.name
+        if name.endswith(".whl") or name.endswith(".tar.gz"):
+            p.unlink()
+
+
 def _run(cmd: list[str], *, cwd: Path, env: dict[str, str] | None = None) -> None:
     r = subprocess.run(cmd, cwd=cwd, env=env)
     if r.returncode != 0:
@@ -145,6 +159,8 @@ def main() -> None:
         raise SystemExit(1)
 
     bump_pyproject_version(pyproject)
+
+    remove_dist_build_artifacts(root / "dist")
 
     _run(["uv", "build"], cwd=root)
 

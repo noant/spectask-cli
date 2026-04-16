@@ -21,6 +21,7 @@ _pub = _load_publish()
 bump_patch_version = _pub.bump_patch_version
 _project_root_version_line_index = _pub._project_root_version_line_index
 bump_pyproject_version = _pub.bump_pyproject_version
+remove_dist_build_artifacts = _pub.remove_dist_build_artifacts
 
 
 @pytest.mark.parametrize(
@@ -69,3 +70,21 @@ def test_bump_pyproject_version_roundtrip(tmp_path) -> None:
     text = p.read_text(encoding="utf-8")
     assert 'version = "0.1.1"' in text
     assert "0.1.0" not in text
+
+
+def test_remove_dist_build_artifacts_keeps_gitignore(tmp_path) -> None:
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / ".gitignore").write_text("*\n", encoding="utf-8")
+    (dist / "spectask_init-0.1.0-py3-none-any.whl").write_bytes(b"x")
+    (dist / "spectask_init-0.1.0.tar.gz").write_bytes(b"y")
+    (dist / "notes.txt").write_text("keep", encoding="utf-8")
+    remove_dist_build_artifacts(dist)
+    assert not (dist / "spectask_init-0.1.0-py3-none-any.whl").exists()
+    assert not (dist / "spectask_init-0.1.0.tar.gz").exists()
+    assert (dist / ".gitignore").read_text(encoding="utf-8") == "*\n"
+    assert (dist / "notes.txt").read_text(encoding="utf-8") == "keep"
+
+
+def test_remove_dist_build_artifacts_no_op_when_missing(tmp_path) -> None:
+    remove_dist_build_artifacts(tmp_path / "dist")
