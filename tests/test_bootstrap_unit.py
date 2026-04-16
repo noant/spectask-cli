@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -9,7 +10,8 @@ from spectask_init.bootstrap import (
     copy_into_cwd,
     ide_files_for,
     load_json,
-    resolve_auto_ide_key,
+    resolve_auto_ide_keys,
+    run_template_bootstrap,
 )
 
 
@@ -127,7 +129,7 @@ def test_resolve_auto_single_match(tmp_path: Path) -> None:
     cwd = tmp_path / "proj"
     cwd.mkdir()
     (cwd / ".cursor").mkdir()
-    assert resolve_auto_ide_key(template_root=tpl, cwd=cwd, skills=skills) == "cursor"
+    assert resolve_auto_ide_keys(template_root=tpl, cwd=cwd, skills=skills) == ("cursor",)
 
 
 def test_resolve_auto_or_file_or_directory(tmp_path: Path) -> None:
@@ -151,11 +153,11 @@ def test_resolve_auto_or_file_or_directory(tmp_path: Path) -> None:
     cwd = tmp_path / "proj1"
     cwd.mkdir()
     (cwd / ".rules").write_text("x", encoding="utf-8")
-    assert resolve_auto_ide_key(template_root=tpl, cwd=cwd, skills=skills) == "ws"
+    assert resolve_auto_ide_keys(template_root=tpl, cwd=cwd, skills=skills) == ("ws",)
     cwd2 = tmp_path / "proj2"
     cwd2.mkdir()
     (cwd2 / ".wsdir").mkdir()
-    assert resolve_auto_ide_key(template_root=tpl, cwd=cwd2, skills=skills) == "ws"
+    assert resolve_auto_ide_keys(template_root=tpl, cwd=cwd2, skills=skills) == ("ws",)
 
 
 def test_resolve_auto_wrong_kind_no_match(tmp_path: Path) -> None:
@@ -170,10 +172,10 @@ def test_resolve_auto_wrong_kind_no_match(tmp_path: Path) -> None:
     cwd.mkdir()
     (cwd / ".cursor").write_text("file-not-dir", encoding="utf-8")
     with pytest.raises(RuntimeError, match="Could not detect IDE"):
-        resolve_auto_ide_key(template_root=tpl, cwd=cwd, skills=skills)
+        resolve_auto_ide_keys(template_root=tpl, cwd=cwd, skills=skills)
 
 
-def test_resolve_auto_ambiguous(tmp_path: Path) -> None:
+def test_resolve_auto_multi_match_returns_keys_in_detection_order(tmp_path: Path) -> None:
     tpl = tmp_path / "tpl"
     meta = tpl / ".metadata"
     skills = {
@@ -195,8 +197,44 @@ def test_resolve_auto_ambiguous(tmp_path: Path) -> None:
     cwd.mkdir()
     (cwd / ".a").mkdir()
     (cwd / ".b").mkdir()
-    with pytest.raises(RuntimeError, match="ambiguous"):
-        resolve_auto_ide_key(template_root=tpl, cwd=cwd, skills=skills)
+    assert resolve_auto_ide_keys(template_root=tpl, cwd=cwd, skills=skills) == ("a", "b")
+
+    _write_detection(
+        meta,
+        {
+            "ides": [
+                {"name": "b", "markers": [{"path": ".b", "kind": "directory"}]},
+                {"name": "a", "markers": [{"path": ".a", "kind": "directory"}]},
+            ],
+        },
+    )
+    assert resolve_auto_ide_keys(template_root=tpl, cwd=cwd, skills=skills) == ("b", "a")
+
+
+def test_resolve_auto_multi_match_merges_paths_like_explicit_keys(tmp_path: Path) -> None:
+    tpl = tmp_path / "tpl"
+    meta = tpl / ".metadata"
+    skills = {
+        "ides": [
+            {"name": "a", "paths": ["shared.md", "only-a.md"]},
+            {"name": "b", "paths": ["shared.md", "only-b.md"]},
+        ],
+    }
+    _write_detection(
+        meta,
+        {
+            "ides": [
+                {"name": "a", "markers": [{"path": ".a", "kind": "directory"}]},
+                {"name": "b", "markers": [{"path": ".b", "kind": "directory"}]},
+            ],
+        },
+    )
+    cwd = tmp_path / "proj"
+    cwd.mkdir()
+    (cwd / ".a").mkdir()
+    (cwd / ".b").mkdir()
+    keys = resolve_auto_ide_keys(template_root=tpl, cwd=cwd, skills=skills)
+    assert ide_files_for(skills, keys) == ide_files_for(skills, ("a", "b"))
 
 
 def test_resolve_auto_unknown_detection_name(tmp_path: Path) -> None:
@@ -210,7 +248,7 @@ def test_resolve_auto_unknown_detection_name(tmp_path: Path) -> None:
     cwd = tmp_path / "proj"
     cwd.mkdir()
     with pytest.raises(RuntimeError, match="skills-map"):
-        resolve_auto_ide_key(template_root=tpl, cwd=cwd, skills=skills)
+        resolve_auto_ide_keys(template_root=tpl, cwd=cwd, skills=skills)
 
 
 def test_resolve_auto_missing_detection_file(tmp_path: Path) -> None:
@@ -220,7 +258,7 @@ def test_resolve_auto_missing_detection_file(tmp_path: Path) -> None:
     cwd = tmp_path / "proj"
     cwd.mkdir()
     with pytest.raises(RuntimeError, match="does not include .metadata/ide-detection.json"):
-        resolve_auto_ide_key(template_root=tpl, cwd=cwd, skills=skills)
+        resolve_auto_ide_keys(template_root=tpl, cwd=cwd, skills=skills)
 
 
 def test_resolve_auto_invalid_marker_path(tmp_path: Path) -> None:
@@ -234,7 +272,7 @@ def test_resolve_auto_invalid_marker_path(tmp_path: Path) -> None:
     cwd = tmp_path / "proj"
     cwd.mkdir()
     with pytest.raises(RuntimeError, match="invalid marker path"):
-        resolve_auto_ide_key(template_root=tpl, cwd=cwd, skills=skills)
+        resolve_auto_ide_keys(template_root=tpl, cwd=cwd, skills=skills)
 
 
 def test_copy_into_cwd_rejects_escape(tmp_path, monkeypatch) -> None:
@@ -246,3 +284,154 @@ def test_copy_into_cwd_rejects_escape(tmp_path, monkeypatch) -> None:
     (other / "secret.txt").write_text("x", encoding="utf-8")
     with pytest.raises(RuntimeError, match="outside template root"):
         copy_into_cwd(root, "../outside/secret.txt")
+
+
+def _minimal_template_root(tmp_path: Path) -> Path:
+    root = tmp_path / "tpl"
+    meta = root / ".metadata"
+    meta.mkdir(parents=True)
+    (meta / "required-list.json").write_text(
+        json.dumps(
+            {
+                "required": [
+                    "spec/navigation.md",
+                    "spec/design/hla.md",
+                ],
+            },
+        ),
+        encoding="utf-8",
+    )
+    (meta / "example-list.json").write_text(
+        json.dumps({"examples": []}),
+        encoding="utf-8",
+    )
+    (meta / "skills-map.json").write_text(
+        json.dumps({"ides": [{"name": "cursor", "paths": ["only-cursor.md"]}]}),
+        encoding="utf-8",
+    )
+    (root / "spec").mkdir(parents=True)
+    (root / "spec" / "navigation.md").write_text("tpl-nav\n", encoding="utf-8")
+    (root / "spec" / "design").mkdir()
+    (root / "spec" / "design" / "hla.md").write_text("tpl-hla\n", encoding="utf-8")
+    (root / "only-cursor.md").write_text("skill\n", encoding="utf-8")
+    return root
+
+
+def _fake_acquire_root(template_root: Path):
+    @contextmanager
+    def _acquire(url: str, *, git_branch: str, layout: str):
+        yield template_root
+
+    return _acquire
+
+
+def test_preflight_existing_navigation_refuses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tpl = _minimal_template_root(tmp_path)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    monkeypatch.chdir(proj)
+    (proj / "spec").mkdir()
+    (proj / "spec" / "navigation.md").write_text("existing\n", encoding="utf-8")
+    monkeypatch.setattr("spectask_init.bootstrap.acquire_source", _fake_acquire_root(tpl))
+    with pytest.raises(RuntimeError, match="spec/navigation.md") as exc:
+        run_template_bootstrap(
+            template_url="https://example.com/x.zip",
+            ide=("cursor",),
+            skip_example=True,
+            skip_navigation_file=False,
+            skip_hla_file=False,
+            template_branch="main",
+        )
+    msg = str(exc.value)
+    assert "--update" in msg
+    assert "--skip-navigation-file" in msg
+
+
+def test_preflight_existing_hla_refuses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tpl = _minimal_template_root(tmp_path)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    monkeypatch.chdir(proj)
+    (proj / "spec").mkdir(parents=True)
+    (proj / "spec" / "design").mkdir()
+    (proj / "spec" / "design" / "hla.md").write_text("existing\n", encoding="utf-8")
+    monkeypatch.setattr("spectask_init.bootstrap.acquire_source", _fake_acquire_root(tpl))
+    with pytest.raises(RuntimeError, match="spec/design/hla.md") as exc:
+        run_template_bootstrap(
+            template_url="https://example.com/x.zip",
+            ide=("cursor",),
+            skip_example=True,
+            skip_navigation_file=False,
+            skip_hla_file=False,
+            template_branch="main",
+        )
+    msg = str(exc.value)
+    assert "--update" in msg
+    assert "--skip-hla-file" in msg
+
+
+def test_preflight_both_existing_refuses_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tpl = _minimal_template_root(tmp_path)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    monkeypatch.chdir(proj)
+    (proj / "spec").mkdir()
+    (proj / "spec" / "navigation.md").write_text("n\n", encoding="utf-8")
+    (proj / "spec" / "design").mkdir()
+    (proj / "spec" / "design" / "hla.md").write_text("h\n", encoding="utf-8")
+    monkeypatch.setattr("spectask_init.bootstrap.acquire_source", _fake_acquire_root(tpl))
+    with pytest.raises(RuntimeError) as exc:
+        run_template_bootstrap(
+            template_url="https://example.com/x.zip",
+            ide=("cursor",),
+            skip_example=True,
+            skip_navigation_file=False,
+            skip_hla_file=False,
+            template_branch="main",
+        )
+    msg = str(exc.value)
+    assert "spec/navigation.md" in msg
+    assert "spec/design/hla.md" in msg
+    assert "--skip-navigation-file" in msg
+    assert "--skip-hla-file" in msg
+
+
+def test_preflight_skip_navigation_allows_existing_navigation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tpl = _minimal_template_root(tmp_path)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    monkeypatch.chdir(proj)
+    (proj / "spec").mkdir()
+    (proj / "spec" / "navigation.md").write_text("keep-me\n", encoding="utf-8")
+    monkeypatch.setattr("spectask_init.bootstrap.acquire_source", _fake_acquire_root(tpl))
+    run_template_bootstrap(
+        template_url="https://example.com/x.zip",
+        ide=("cursor",),
+        skip_example=True,
+        skip_navigation_file=True,
+        skip_hla_file=False,
+        template_branch="main",
+    )
+    assert (proj / "spec" / "navigation.md").read_text(encoding="utf-8") == "keep-me\n"
+    assert (proj / "spec" / "design" / "hla.md").read_text(encoding="utf-8") == "tpl-hla\n"
+
+
+def test_preflight_skip_hla_allows_existing_hla(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tpl = _minimal_template_root(tmp_path)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    monkeypatch.chdir(proj)
+    (proj / "spec").mkdir()
+    (proj / "spec" / "design").mkdir()
+    (proj / "spec" / "design" / "hla.md").write_text("keep-me\n", encoding="utf-8")
+    monkeypatch.setattr("spectask_init.bootstrap.acquire_source", _fake_acquire_root(tpl))
+    run_template_bootstrap(
+        template_url="https://example.com/x.zip",
+        ide=("cursor",),
+        skip_example=True,
+        skip_navigation_file=False,
+        skip_hla_file=True,
+        template_branch="main",
+    )
+    assert (proj / "spec" / "design" / "hla.md").read_text(encoding="utf-8") == "keep-me\n"
+    assert (proj / "spec" / "navigation.md").read_text(encoding="utf-8") == "tpl-nav\n"

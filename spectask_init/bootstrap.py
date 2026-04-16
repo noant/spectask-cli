@@ -212,8 +212,55 @@ def _load_and_validate_ide_detection(
     return validated
 
 
-def resolve_auto_ide_key(*, template_root: Path, cwd: Path, skills: dict[str, Any]) -> str:
-    """Resolve ``auto`` using template ``.metadata/ide-detection.json`` and marker checks under ``cwd``."""
+def _preflight_required_navigation_and_hla(
+    *,
+    cwd: Path,
+    required: list[str],
+    skip_navigation_file: bool,
+    skip_hla_file: bool,
+) -> None:
+    """Fail before copying if required-list would overwrite existing navigation or HLA files."""
+    conflicts: list[str] = []
+    for rel in required:
+        if rel == "spec/navigation.md" and not skip_navigation_file and (cwd / rel).exists():
+            conflicts.append(rel)
+        elif rel == "spec/design/hla.md" and not skip_hla_file and (cwd / rel).exists():
+            conflicts.append(rel)
+    if not conflicts:
+        return
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for c in conflicts:
+        if c not in seen:
+            seen.add(c)
+            uniq.append(c)
+    update_hint = (
+        "Use --update (implies --skip-example, --skip-navigation-file, and --skip-hla-file)"
+    )
+    if len(uniq) == 1:
+        path = uniq[0]
+        skip_flag = (
+            "--skip-navigation-file"
+            if path == "spec/navigation.md"
+            else "--skip-hla-file"
+        )
+        raise RuntimeError(
+            f"Refusing to overwrite existing {path}. {update_hint} "
+            f"or {skip_flag} to keep your file and skip copying it from the template.",
+        )
+    paths = " and ".join(uniq)
+    raise RuntimeError(
+        f"Refusing to overwrite existing files: {paths}. {update_hint}, "
+        "or pass --skip-navigation-file and/or --skip-hla-file to skip copying the matching "
+        "files from the template.",
+    )
+
+
+def resolve_auto_ide_keys(*, template_root: Path, cwd: Path, skills: dict[str, Any]) -> tuple[str, ...]:
+    """Resolve ``auto`` using template ``.metadata/ide-detection.json`` and marker checks under ``cwd``.
+
+    Returns one or more IDE keys in ``ide-detection.json`` ``ides[]`` order for every entry that matches.
+    """
     detection_path = template_root / ".metadata" / "ide-detection.json"
     if not detection_path.is_file():
         keys = ", ".join(_explicit_ide_names_from_skills(skills))
@@ -232,13 +279,7 @@ def resolve_auto_ide_key(*, template_root: Path, cwd: Path, skills: dict[str, An
             "Could not detect IDE from the current directory (no markers matched). "
             f"Use --ide all to install files for every IDE, or pass one of: {explicit}",
         )
-    if len(matched) > 1:
-        listed = ", ".join(matched)
-        raise RuntimeError(
-            f"IDE detection is ambiguous; multiple environments match: {listed}. "
-            "Pass an explicit --ide value instead of auto.",
-        )
-    return matched[0]
+    return tuple(matched)
 
 
 def run_template_bootstrap(
@@ -247,6 +288,7 @@ def run_template_bootstrap(
     ide: tuple[str, ...],
     skip_example: bool,
     skip_navigation_file: bool,
+    skip_hla_file: bool,
     template_branch: str,
 ) -> None:
     with acquire_source(template_url, git_branch=template_branch, layout="template") as template_root:
@@ -258,7 +300,16 @@ def run_template_bootstrap(
         for rel in required:
             if not isinstance(rel, str):
                 raise RuntimeError("required-list.json: 'required' must be a list of strings")
+        _preflight_required_navigation_and_hla(
+            cwd=Path.cwd(),
+            required=required,
+            skip_navigation_file=skip_navigation_file,
+            skip_hla_file=skip_hla_file,
+        )
+        for rel in required:
             if skip_navigation_file and rel == "spec/navigation.md":
+                continue
+            if skip_hla_file and rel == "spec/design/hla.md":
                 continue
             copy_into_cwd(template_root, rel)
 
@@ -275,7 +326,7 @@ def run_template_bootstrap(
         skills = load_json(meta / "skills-map.json")
         ide_effective = ide
         if ide == ("auto",):
-            ide_effective = (resolve_auto_ide_key(template_root=template_root, cwd=Path.cwd(), skills=skills),)
+            ide_effective = resolve_auto_ide_keys(template_root=template_root, cwd=Path.cwd(), skills=skills)
         for rel in ide_files_for(skills, ide_effective):
             copy_into_cwd(template_root, rel)
 

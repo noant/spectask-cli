@@ -23,14 +23,17 @@ uvx spectask-init --ide cursor
 
 | Option | Purpose |
 |--------|---------|
-| **`--ide`** | Which IDE(s) to install files for. Each value picks paths from the template’s `.metadata/skills-map.json`. You can pass **several** keys to merge lists (order preserved, duplicates dropped). **`auto`** picks one IDE using `.metadata/ide-detection.json` and markers in the **current directory** (must be used alone). **`all`** installs the union of every IDE’s files (must be used alone). **Required** unless you pass **`--update`** (then it defaults to `auto`). |
+| **`--ide`** | Which IDE(s) to install files for. Each value picks paths from the template’s `.metadata/skills-map.json`. You can pass **several** keys to merge lists (order preserved, duplicates dropped). **`auto`** uses `.metadata/ide-detection.json` and markers in the **current directory**: every IDE entry that matches is included (in file order), and their path lists are merged the same way as passing those keys explicitly (must be used alone). **`all`** installs the union of every IDE’s files (must be used alone). **Required** unless you pass **`--update`** (then it defaults to `auto`). |
 | **`--template-url`** | Where to fetch the template from: **`.zip` URL** (download + extract) or **Git** URL (clone). Default is the official Spectask repo (`.git`). A **ZIP** avoids needing `git` for the template step. |
 | **`--template-branch`** | Git branch for **`--template-url`** when it is **not** a ZIP (default: `main`). Ignored for ZIP URLs. |
 | **`--extend`** | Optional second source (ZIP or Git) merged into **`spec/extend/`** after the main template. |
 | **`--extend-branch`** | Git branch for **`--extend`** when it is **not** a ZIP (default: `main`). |
 | **`--skip-example`** | Do not copy paths listed in the template’s example list (keeps the tree minimal). |
 | **`--skip-navigation-file`** | Do not copy **`spec/navigation.md`**. For advanced workflows; a normal Spectask tree usually keeps this file. |
-| **`--update`** | Shorthand for **`--skip-example`** and **`--skip-navigation-file`**. If you **omit** **`--ide`**, it behaves like **`--ide auto`** (detection from the template + your cwd). If you pass **`--ide`**, only the skip behavior is combined with your IDE choice. |
+| **`--skip-hla-file`** | Do not copy **`spec/design/hla.md`**. For advanced workflows; a normal Spectask tree usually keeps this file. |
+| **`--update`** | Shorthand for **`--skip-example`**, **`--skip-navigation-file`**, and **`--skip-hla-file`**. If you **omit** **`--ide`**, it behaves like **`--ide auto`** (detection from the template + your cwd). If you pass **`--ide`**, only the skip behavior is combined with your IDE choice. |
+
+If **`spec/navigation.md`** or **`spec/design/hla.md`** already exists in the current directory, a normal run **refuses to overwrite** it and prints a hint to use **`--update`** or the matching **`--skip-navigation-file`** / **`--skip-hla-file`** flag.
 
 With the **default** **`--template-url`**, **`--ide`** must be one of: **`cursor`**, **`claude-code`**, **`qwen-code`**, **`qoder`**, **`windsurf`**, **`auto`**, or **`all`**. With a **custom** template URL, any IDE name present in that template’s **`skills-map.json`** is allowed (and **`auto`** / **`all`** follow the same rules if the template supports them).
 
@@ -66,7 +69,7 @@ uvx spectask-init --ide cursor claude-code
 uvx spectask-init --template-url https://github.com/noant/spectask/archive/refs/heads/main.zip --ide cursor
 ```
 
-**Refresh an existing Spectask tree** (skip example tasks and navigation file; default IDE = `auto`):
+**Refresh an existing Spectask tree** (skip example tasks, navigation file, and HLA file; default IDE = `auto`):
 
 ```bash
 uvx spectask-init --update

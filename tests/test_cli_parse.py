@@ -14,6 +14,7 @@ def test_parse_defaults() -> None:
     assert o.extend_branch == "main"
     assert o.skip_example is False
     assert o.skip_navigation_file is False
+    assert o.skip_hla_file is False
 
 
 def test_parse_custom_template_and_branches() -> None:
@@ -59,6 +60,11 @@ def test_parse_skip_example() -> None:
 def test_parse_skip_navigation_file() -> None:
     o = parse_args(["--ide", "cursor", "--skip-navigation-file"])
     assert o.skip_navigation_file is True
+
+
+def test_parse_skip_hla_file() -> None:
+    o = parse_args(["--ide", "cursor", "--skip-hla-file"])
+    assert o.skip_hla_file is True
 
 
 @pytest.mark.parametrize("ide", [*OFFICIAL_TEMPLATE_IDE_KEYS, "auto", "all"])
@@ -114,6 +120,7 @@ def test_parse_update_only_defaults_auto_and_skips() -> None:
     assert o.ide == ("auto",)
     assert o.skip_example is True
     assert o.skip_navigation_file is True
+    assert o.skip_hla_file is True
 
 
 def test_parse_update_with_explicit_ide_keeps_skips() -> None:
@@ -121,25 +128,39 @@ def test_parse_update_with_explicit_ide_keeps_skips() -> None:
     assert o.ide == ("cursor",)
     assert o.skip_example is True
     assert o.skip_navigation_file is True
+    assert o.skip_hla_file is True
 
 
 def test_parse_update_with_skip_flags_idempotent() -> None:
-    o = parse_args(["--update", "--ide", "cursor", "--skip-example", "--skip-navigation-file"])
+    o = parse_args(
+        [
+            "--update",
+            "--ide",
+            "cursor",
+            "--skip-example",
+            "--skip-navigation-file",
+            "--skip-hla-file",
+        ],
+    )
     assert o.ide == ("cursor",)
     assert o.skip_example is True
     assert o.skip_navigation_file is True
+    assert o.skip_hla_file is True
 
 
 def test_parse_update_with_all() -> None:
     o = parse_args(["--update", "--ide", "all"])
     assert o.ide == ("all",)
     assert o.skip_example is True
+    assert o.skip_navigation_file is True
+    assert o.skip_hla_file is True
 
 
 def test_parse_update_with_multiple_ides() -> None:
     o = parse_args(["--update", "--ide", "cursor", "windsurf"])
     assert o.ide == ("cursor", "windsurf")
     assert o.skip_navigation_file is True
+    assert o.skip_hla_file is True
 
 
 def test_parse_requires_ide_without_update_even_with_other_flags() -> None:

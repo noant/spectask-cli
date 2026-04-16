@@ -43,8 +43,10 @@ def _ide_argument_help(*, parse_time_restricted: bool) -> str:
         f"One or more IDE keys: {listed}. "
         "Each key selects file paths from the resolved template’s .metadata/skills-map.json; "
         "multiple keys merge those lists in order without duplicate paths. "
-        "The key auto selects one IDE using that template’s .metadata/ide-detection.json and "
-        "file or directory markers under the current working directory; it must be used alone. "
+        "The key auto resolves to one or more IDE keys using that template’s .metadata/ide-detection.json and "
+        "file or directory markers under the current working directory (every matching IDE is included, "
+        "in detection-file order, and their path lists are merged like multiple explicit keys); "
+        "it must be used alone. "
         "The special key all copies the union of every IDE’s file list and must be used alone."
     )
     if parse_time_restricted:
@@ -65,6 +67,7 @@ class CliOptions:
     extend_branch: str
     skip_example: bool
     skip_navigation_file: bool
+    skip_hla_file: bool
 
 
 def build_parser(*, ide_choices: list[str] | None = None, ide_help: str | None = None) -> argparse.ArgumentParser:
@@ -114,10 +117,18 @@ Default --template-url is the official Spectask GitHub repository (.git); use a 
         ),
     )
     p.add_argument(
+        "--skip-hla-file",
+        action="store_true",
+        help=(
+            "Do not copy spec/design/hla.md from required-list. "
+            "Advanced merge use case; Spectask normally keeps HLA in this file."
+        ),
+    )
+    p.add_argument(
         "--update",
         action="store_true",
         help=(
-            "Apply --skip-example and --skip-navigation-file. "
+            "Apply --skip-example, --skip-navigation-file, and --skip-hla-file. "
             "When --ide is omitted, default to auto (same as --ide auto). "
             "Explicit --ide values are unchanged."
         ),
@@ -143,6 +154,7 @@ def parse_args(argv: list[str] | None = None) -> CliOptions:
         p.error("'all' cannot be combined with other --ide values")
     skip_example = ns.skip_example or ns.update
     skip_navigation_file = ns.skip_navigation_file or ns.update
+    skip_hla_file = ns.skip_hla_file or ns.update
     return CliOptions(
         template_url=ns.template_url,
         ide=tuple(ns.ide),
@@ -151,6 +163,7 @@ def parse_args(argv: list[str] | None = None) -> CliOptions:
         extend_branch=ns.extend_branch,
         skip_example=skip_example,
         skip_navigation_file=skip_navigation_file,
+        skip_hla_file=skip_hla_file,
     )
 
 
@@ -162,6 +175,7 @@ def main() -> None:
             ide=opts.ide,
             skip_example=opts.skip_example,
             skip_navigation_file=opts.skip_navigation_file,
+            skip_hla_file=opts.skip_hla_file,
             template_branch=opts.template_branch,
         )
     except (OSError, RuntimeError, zipfile.BadZipFile) as e:
