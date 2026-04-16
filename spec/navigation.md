@@ -1,5 +1,7 @@
 ## spec/extend/
 
-- `spec/extend/example.md` — Spec extension example.
+- `spec/extend/conventions.md` — Spec extension.
 
 ## spec/design/
+
+- `spec/design/hla.md` — High-level architecture.
