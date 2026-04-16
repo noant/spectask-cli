@@ -128,7 +128,7 @@ Default --template-url is the official Spectask GitHub repository (.git); use a 
         "--update",
         action="store_true",
         help=(
-            "Apply --skip-example, --skip-navigation-file, and --skip-hla-file. "
+            "Apply --skip-example and --skip-hla-file (does not imply --skip-navigation-file). "
             "When --ide is omitted, default to auto (same as --ide auto). "
             "Explicit --ide values are unchanged."
         ),
@@ -153,7 +153,7 @@ def parse_args(argv: list[str] | None = None) -> CliOptions:
     if "all" in ns.ide and len(ns.ide) > 1:
         p.error("'all' cannot be combined with other --ide values")
     skip_example = ns.skip_example or ns.update
-    skip_navigation_file = ns.skip_navigation_file or ns.update
+    skip_navigation_file = ns.skip_navigation_file
     skip_hla_file = ns.skip_hla_file or ns.update
     return CliOptions(
         template_url=ns.template_url,

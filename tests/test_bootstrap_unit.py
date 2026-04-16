@@ -358,7 +358,7 @@ def test_preflight_existing_navigation_refuses(tmp_path: Path, monkeypatch: pyte
             template_branch="main",
         )
     msg = str(exc.value)
-    assert "--update" in msg
+    assert "--update --skip-navigation-file" in msg
     assert "--skip-navigation-file" in msg
 
 
@@ -409,6 +409,8 @@ def test_preflight_both_existing_refuses_once(tmp_path: Path, monkeypatch: pytes
     assert "spec/design/hla.md" in msg
     assert "--skip-navigation-file" in msg
     assert "--skip-hla-file" in msg
+    assert "--update" in msg
+    assert "applies --skip-example and --skip-hla-file" in msg
 
 
 def test_preflight_skip_navigation_allows_existing_navigation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

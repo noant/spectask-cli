@@ -66,9 +66,9 @@ uvx --refresh-package spectask-init spectask-init --ide cursor
 | **`--skip-example`** | Do not copy paths listed in the template’s example list (keeps the tree minimal). |
 | **`--skip-navigation-file`** | Do not copy **`spec/navigation.yaml`** from the template’s required list. For advanced workflows; a normal Spectask tree usually keeps this file. |
 | **`--skip-hla-file`** | Do not copy **`spec/design/hla.md`**. For advanced workflows; a normal Spectask tree usually keeps this file. |
-| **`--update`** | Shorthand for **`--skip-example`**, **`--skip-navigation-file`**, and **`--skip-hla-file`**. If you **omit** **`--ide`**, it behaves like **`--ide auto`** (detection from the template + your cwd). If you pass **`--ide`**, only the skip behavior is combined with your IDE choice. |
+| **`--update`** | Shorthand for **`--skip-example`** and **`--skip-hla-file`** only (it does **not** imply **`--skip-navigation-file`**). Add **`--skip-navigation-file`** explicitly if you want the older behavior of refreshing IDE-related files without copying the template **`spec/navigation.yaml`**. If you **omit** **`--ide`**, it behaves like **`--ide auto`** (detection from the template + your cwd). If you pass **`--ide`**, only the skip behavior is combined with your IDE choice. |
 
-If **`spec/navigation.yaml`** or **`spec/design/hla.md`** already exists in the current directory, a normal run **refuses to overwrite** it and prints a hint to use **`--update`** or the matching **`--skip-navigation-file`** / **`--skip-hla-file`** flag.
+If **`spec/navigation.yaml`** or **`spec/design/hla.md`** already exists in the current directory, a normal run **refuses to overwrite** it. The hint names the matching skip flag for each path. For **`spec/design/hla.md`**, **`--update`** is sufficient because it implies **`--skip-hla-file`**. For **`spec/navigation.yaml`**, you must pass **`--skip-navigation-file`**— **`--update`** alone does not skip copying the registry. Use **`--update --skip-navigation-file`** when you want the example and HLA skips from **`--update`** plus the legacy “do not copy the registry” behavior.
 
 With the **default** **`--template-url`**, **`--ide`** must be one of: **`cursor`**, **`claude-code`**, **`qwen-code`**, **`qoder`**, **`windsurf`**, **`auto`**, or **`all`**. With a **custom** template URL, any IDE name present in that template’s **`skills-map.json`** is allowed (and **`auto`** / **`all`** follow the same rules if the template supports them).
 
@@ -104,7 +104,7 @@ uvx spectask-init --ide cursor claude-code
 uvx spectask-init --template-url https://github.com/noant/spectask/archive/refs/heads/main.zip --ide cursor
 ```
 
-**Refresh an existing Spectask tree** (skip example tasks, navigation file, and HLA file; default IDE = `auto`):
+**Refresh an existing Spectask tree** ( **`--skip-example`** and **`--skip-hla-file`** via **`--update`**; **`spec/navigation.yaml`** is still copied when the tool would install it unless you add **`--skip-navigation-file`**; default IDE = `auto`):
 
 ```bash
 uvx spectask-init --update

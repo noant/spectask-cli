@@ -115,19 +115,19 @@ def test_parse_ide_required() -> None:
         parse_args([])
 
 
-def test_parse_update_only_defaults_auto_and_skips() -> None:
+def test_parse_update_only_defaults_auto_skips_example_and_hla() -> None:
     o = parse_args(["--update"])
     assert o.ide == ("auto",)
     assert o.skip_example is True
-    assert o.skip_navigation_file is True
+    assert o.skip_navigation_file is False
     assert o.skip_hla_file is True
 
 
-def test_parse_update_with_explicit_ide_keeps_skips() -> None:
+def test_parse_update_with_explicit_ide_skips_example_and_hla() -> None:
     o = parse_args(["--update", "--ide", "cursor"])
     assert o.ide == ("cursor",)
     assert o.skip_example is True
-    assert o.skip_navigation_file is True
+    assert o.skip_navigation_file is False
     assert o.skip_hla_file is True
 
 
@@ -152,14 +152,14 @@ def test_parse_update_with_all() -> None:
     o = parse_args(["--update", "--ide", "all"])
     assert o.ide == ("all",)
     assert o.skip_example is True
-    assert o.skip_navigation_file is True
+    assert o.skip_navigation_file is False
     assert o.skip_hla_file is True
 
 
 def test_parse_update_with_multiple_ides() -> None:
     o = parse_args(["--update", "--ide", "cursor", "windsurf"])
     assert o.ide == ("cursor", "windsurf")
-    assert o.skip_navigation_file is True
+    assert o.skip_navigation_file is False
     assert o.skip_hla_file is True
 
 

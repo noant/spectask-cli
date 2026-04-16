@@ -714,21 +714,26 @@ def _preflight_required_navigation_and_hla(
         if c not in seen:
             seen.add(c)
             uniq.append(c)
-    update_hint = (
-        "Use --update (implies --skip-example, --skip-navigation-file, and --skip-hla-file)"
-    )
+    nav = NAVIGATION_FILE_RELPATH
     if len(uniq) == 1:
         path = uniq[0]
-        skip_flag = "--skip-navigation-file" if path == NAVIGATION_FILE_RELPATH else "--skip-hla-file"
+        if path == nav:
+            raise RuntimeError(
+                f"Refusing to overwrite existing {path}. "
+                "Pass --skip-navigation-file to keep your file and skip copying it from the template. "
+                "To also apply --skip-example and --skip-hla-file, use --update --skip-navigation-file.",
+            )
         raise RuntimeError(
-            f"Refusing to overwrite existing {path}. {update_hint} "
-            f"or {skip_flag} to keep your file and skip copying it from the template.",
+            f"Refusing to overwrite existing {path}. "
+            "Pass --skip-hla-file to keep your file and skip copying it from the template, "
+            "or pass --update (applies --skip-example and --skip-hla-file).",
         )
     paths = " and ".join(uniq)
     raise RuntimeError(
-        f"Refusing to overwrite existing files: {paths}. {update_hint}, "
-        "or pass --skip-navigation-file and/or --skip-hla-file to skip copying the matching "
-        "files from the template.",
+        f"Refusing to overwrite existing files: {paths}. "
+        "Pass --skip-navigation-file and --skip-hla-file to keep your files and skip copying them "
+        "from the template, or pass --update together with --skip-navigation-file "
+        "(applies --skip-example and --skip-hla-file).",
     )
 
 

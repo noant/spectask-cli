@@ -201,7 +201,7 @@ def test_init_refuses_overwrite_existing_navigation(tmp_path, monkeypatch, capsy
     err = capsys.readouterr().err
     assert "Refusing" in err
     assert "spec/navigation.yaml" in err
-    assert "--update" in err
+    assert "--update --skip-navigation-file" in err
     assert "--skip-navigation-file" in err
 
 
@@ -239,7 +239,7 @@ def test_update_quarantines_existing_navigation(tmp_path, monkeypatch) -> None:
         ["--template-url", TEMPLATE_ZIP, "--update"],
     )
     assert not (tmp_path / "spec" / "navigation.md").exists()
-    assert not (tmp_path / "spec" / "navigation.yaml").exists()
+    assert (tmp_path / "spec" / "navigation.yaml").is_file()
     backup = tmp_path / ".backup_spectask"
     assert backup.is_dir()
     assert any(p.name.startswith("navigation.md_") for p in backup.iterdir())
@@ -248,7 +248,7 @@ def test_update_quarantines_existing_navigation(tmp_path, monkeypatch) -> None:
 
 
 @pytest.mark.integration
-def test_update_with_explicit_ide_skips_example_and_navigation(tmp_path, monkeypatch) -> None:
+def test_update_with_explicit_ide_skips_example_and_hla(tmp_path, monkeypatch) -> None:
     _run_main(
         monkeypatch,
         tmp_path,
@@ -257,7 +257,7 @@ def test_update_with_explicit_ide_skips_example_and_navigation(tmp_path, monkeyp
     assert not (tmp_path / EXAMPLE_ONLY).exists()
     assert (tmp_path / "spec/main.md").is_file()
     assert not (tmp_path / "spec/design/hla.md").exists()
-    assert not (tmp_path / "spec/navigation.yaml").exists()
+    assert (tmp_path / "spec/navigation.yaml").is_file()
 
 
 @pytest.mark.integration
@@ -296,7 +296,7 @@ def test_update_only_zip_defaults_ide_auto(tmp_path, monkeypatch) -> None:
     assert not (tmp_path / EXAMPLE_ONLY).exists()
     assert (tmp_path / "spec/main.md").is_file()
     assert not (tmp_path / "spec/design/hla.md").exists()
-    assert not (tmp_path / "spec/navigation.yaml").exists()
+    assert (tmp_path / "spec/navigation.yaml").is_file()
     assert (tmp_path / CURSOR_SKILL).is_file()
 
 
