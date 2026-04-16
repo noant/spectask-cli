@@ -30,7 +30,7 @@ def _run_main(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, argv: list[str]) 
 
 def _assert_baseline(cwd: Path) -> None:
     assert (cwd / "spec/main.md").is_file()
-    assert (cwd / "spec/navigation.md").is_file()
+    assert (cwd / "spec/navigation.yaml").is_file()
     assert (cwd / "spec/design/hla.md").is_file()
 
 
@@ -170,7 +170,7 @@ def test_skip_navigation_file_omits_navigation(tmp_path, monkeypatch) -> None:
     )
     assert (tmp_path / "spec/main.md").is_file()
     assert (tmp_path / "spec/design/hla.md").is_file()
-    assert not (tmp_path / "spec/navigation.md").exists()
+    assert not (tmp_path / "spec/navigation.yaml").exists()
 
 
 @pytest.mark.integration
@@ -181,14 +181,14 @@ def test_skip_hla_file_omits_hla(tmp_path, monkeypatch) -> None:
         ["--template-url", TEMPLATE_ZIP, "--ide", "cursor", "--skip-hla-file"],
     )
     assert (tmp_path / "spec/main.md").is_file()
-    assert (tmp_path / "spec/navigation.md").is_file()
+    assert (tmp_path / "spec/navigation.yaml").is_file()
     assert not (tmp_path / "spec/design/hla.md").exists()
 
 
 @pytest.mark.integration
 def test_init_refuses_overwrite_existing_navigation(tmp_path, monkeypatch, capsys) -> None:
     (tmp_path / "spec").mkdir(parents=True)
-    (tmp_path / "spec" / "navigation.md").write_text("# existing\n", encoding="utf-8")
+    (tmp_path / "spec" / "navigation.yaml").write_text("# existing\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         sys,
@@ -200,13 +200,34 @@ def test_init_refuses_overwrite_existing_navigation(tmp_path, monkeypatch, capsy
     assert excinfo.value.code == 1
     err = capsys.readouterr().err
     assert "Refusing" in err
-    assert "spec/navigation.md" in err
+    assert "spec/navigation.yaml" in err
     assert "--update" in err
     assert "--skip-navigation-file" in err
 
 
 @pytest.mark.integration
-def test_update_succeeds_when_navigation_already_exists(tmp_path, monkeypatch) -> None:
+def test_init_refuses_overwrite_existing_hla(tmp_path, monkeypatch, capsys) -> None:
+    (tmp_path / "spec").mkdir(parents=True)
+    (tmp_path / "spec" / "design").mkdir(parents=True)
+    (tmp_path / "spec" / "design" / "hla.md").write_text("# existing\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["spectask-init", "--template-url", TEMPLATE_ZIP, "--ide", "cursor"],
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        main()
+    assert excinfo.value.code == 1
+    err = capsys.readouterr().err
+    assert "Refusing" in err
+    assert "spec/design/hla.md" in err
+    assert "--update" in err
+    assert "--skip-hla-file" in err
+
+
+@pytest.mark.integration
+def test_update_quarantines_existing_navigation(tmp_path, monkeypatch) -> None:
     _mkdir_for_cursor_ide_auto(tmp_path)
     (tmp_path / "spec").mkdir(parents=True)
     (tmp_path / "spec" / "navigation.md").write_text("# existing\n", encoding="utf-8")
@@ -217,7 +238,11 @@ def test_update_succeeds_when_navigation_already_exists(tmp_path, monkeypatch) -
         tmp_path,
         ["--template-url", TEMPLATE_ZIP, "--update"],
     )
-    assert (tmp_path / "spec" / "navigation.md").read_text(encoding="utf-8") == "# existing\n"
+    assert not (tmp_path / "spec" / "navigation.md").exists()
+    assert not (tmp_path / "spec" / "navigation.yaml").exists()
+    backup = tmp_path / ".backup_spectask"
+    assert backup.is_dir()
+    assert any(p.name.startswith("navigation.md_") for p in backup.iterdir())
     assert (tmp_path / "spec" / "design" / "hla.md").read_text(encoding="utf-8") == "# existing hla\n"
     assert (tmp_path / CURSOR_SKILL).is_file()
 
@@ -232,7 +257,7 @@ def test_update_with_explicit_ide_skips_example_and_navigation(tmp_path, monkeyp
     assert not (tmp_path / EXAMPLE_ONLY).exists()
     assert (tmp_path / "spec/main.md").is_file()
     assert not (tmp_path / "spec/design/hla.md").exists()
-    assert not (tmp_path / "spec/navigation.md").exists()
+    assert not (tmp_path / "spec/navigation.yaml").exists()
 
 
 @pytest.mark.integration
@@ -271,7 +296,7 @@ def test_update_only_zip_defaults_ide_auto(tmp_path, monkeypatch) -> None:
     assert not (tmp_path / EXAMPLE_ONLY).exists()
     assert (tmp_path / "spec/main.md").is_file()
     assert not (tmp_path / "spec/design/hla.md").exists()
-    assert not (tmp_path / "spec/navigation.md").exists()
+    assert not (tmp_path / "spec/navigation.yaml").exists()
     assert (tmp_path / CURSOR_SKILL).is_file()
 
 

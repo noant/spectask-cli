@@ -112,7 +112,7 @@ Default --template-url is the official Spectask GitHub repository (.git); use a 
         "--skip-navigation-file",
         action="store_true",
         help=(
-            "Do not copy spec/navigation.md from required-list. "
+            "Do not copy spec/navigation.yaml from required-list. "
             "Advanced merge use case; Spectask normally expects this file."
         ),
     )

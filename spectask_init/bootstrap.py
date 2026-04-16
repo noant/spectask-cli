@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
+import uuid
 from collections.abc import Sequence
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, TextIO
 
 from spectask_init.acquire import acquire_source
+
+# Required-list path for the Spectask navigation registry (see upstream `required-list.json`).
+NAVIGATION_FILE_RELPATH = "spec/navigation.yaml"
 
 
 def _paths_from_entry(entry: dict[str, Any]) -> list[str] | None:
@@ -34,6 +39,203 @@ def load_json(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise RuntimeError(f"Expected JSON object at root in {path}")
     return data
+
+
+def _validate_migration_rel_path(rel: str, *, migration_file: Path, context: str) -> None:
+    if not isinstance(rel, str) or not rel:
+        raise RuntimeError(f"migration.json: {context} must be a non-empty string ({migration_file})")
+    p = PurePosixPath(rel)
+    if p.is_absolute() or ".." in p.parts:
+        raise RuntimeError(
+            f"migration.json: invalid path {rel!r} in {context} "
+            f"(must be relative with no '..') ({migration_file})",
+        )
+    if len(rel) > 1 and rel[1] == ":":
+        raise RuntimeError(
+            f"migration.json: invalid path {rel!r} in {context} ({migration_file})",
+        )
+
+
+def _migration_target_under_cwd(cwd: Path, rel: str, *, migration_file: Path, context: str) -> Path:
+    _validate_migration_rel_path(rel, migration_file=migration_file, context=context)
+    root = cwd.resolve()
+    target = root.joinpath(*PurePosixPath(rel).parts).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError as e:
+        raise RuntimeError(
+            f"migration.json: path escapes working directory: {rel!r} ({context}) ({migration_file})",
+        ) from e
+    return target
+
+
+def _parse_migration_steps(data: dict[str, Any], migration_file: Path) -> list[tuple[str, str, str]]:
+    """Return ordered steps: (\"move\", from, to) or (\"delete\", path, \"\")."""
+    if "operations" in data:
+        ops_raw = data["operations"]
+        if ops_raw is None:
+            ops_raw = []
+        if not isinstance(ops_raw, list):
+            raise RuntimeError(f"migration.json: 'operations' must be an array ({migration_file})")
+        out: list[tuple[str, str, str]] = []
+        for i, item in enumerate(ops_raw):
+            if not isinstance(item, dict):
+                raise RuntimeError(f"migration.json: operations[{i}] must be an object ({migration_file})")
+            op = item.get("type")
+            if not isinstance(op, str):
+                raise RuntimeError(
+                    f"migration.json: operations[{i}].type must be a string ({migration_file})",
+                )
+            if op == "delete":
+                rel = item.get("path")
+                if not isinstance(rel, str):
+                    raise RuntimeError(
+                        f"migration.json: operations[{i}] (delete) must have string 'path' ({migration_file})",
+                    )
+                _validate_migration_rel_path(
+                    rel,
+                    migration_file=migration_file,
+                    context=f"operations[{i}].path",
+                )
+                out.append(("delete", rel, ""))
+            elif op == "move":
+                fr = item.get("from")
+                to = item.get("to")
+                if not isinstance(fr, str) or not isinstance(to, str):
+                    raise RuntimeError(
+                        f"migration.json: operations[{i}] (move) must have string 'from' and 'to' "
+                        f"({migration_file})",
+                    )
+                _validate_migration_rel_path(
+                    fr,
+                    migration_file=migration_file,
+                    context=f"operations[{i}].from",
+                )
+                _validate_migration_rel_path(
+                    to,
+                    migration_file=migration_file,
+                    context=f"operations[{i}].to",
+                )
+                out.append(("move", fr, to))
+            else:
+                raise RuntimeError(
+                    f"migration.json: operations[{i}].type must be 'delete' or 'move', not {op!r} "
+                    f"({migration_file})",
+                )
+        return out
+
+    moves_raw = data.get("move", [])
+    deletes_raw = data.get("delete", [])
+    if moves_raw is None:
+        moves_raw = []
+    if deletes_raw is None:
+        deletes_raw = []
+    if not isinstance(moves_raw, list):
+        raise RuntimeError(f"migration.json: 'move' must be an array ({migration_file})")
+    if not isinstance(deletes_raw, list):
+        raise RuntimeError(f"migration.json: 'delete' must be an array ({migration_file})")
+    legacy_moves: list[tuple[str, str]] = []
+    for i, item in enumerate(moves_raw):
+        if not isinstance(item, dict):
+            raise RuntimeError(f"migration.json: move[{i}] must be an object ({migration_file})")
+        fr = item.get("from")
+        to = item.get("to")
+        if not isinstance(fr, str) or not isinstance(to, str):
+            raise RuntimeError(
+                f"migration.json: move[{i}] must have string 'from' and 'to' ({migration_file})",
+            )
+        _validate_migration_rel_path(fr, migration_file=migration_file, context=f"move[{i}].from")
+        _validate_migration_rel_path(to, migration_file=migration_file, context=f"move[{i}].to")
+        legacy_moves.append((fr, to))
+    legacy_deletes: list[str] = []
+    for i, rel in enumerate(deletes_raw):
+        if not isinstance(rel, str):
+            raise RuntimeError(f"migration.json: delete[{i}] must be a string ({migration_file})")
+        _validate_migration_rel_path(rel, migration_file=migration_file, context=f"delete[{i}]")
+        legacy_deletes.append(rel)
+    steps: list[tuple[str, str, str]] = [("move", a, b) for a, b in legacy_moves]
+    steps.extend(("delete", d, "") for d in legacy_deletes)
+    return steps
+
+
+def _quarantine_under_backup(
+    *,
+    cwd: Path,
+    path: Path,
+    stderr: TextIO,
+    message: str,
+) -> Path:
+    backup_root = (cwd / ".backup_spectask").resolve()
+    backup_root.mkdir(parents=True, exist_ok=True)
+    dest_name = f"{path.name}_{uuid.uuid4().hex}"
+    dest = backup_root / dest_name
+    shutil.move(str(path), str(dest))
+    print(f"spectask-init: {message} Backup: {dest}", file=stderr)
+    return dest
+
+
+def apply_template_migration(
+    *,
+    template_root: Path,
+    cwd: Path | None = None,
+    stderr: TextIO | None = None,
+) -> None:
+    """Apply optional ``.metadata/migration.json`` under ``cwd``.
+
+    Supports an ``operations`` array (``type``: ``move`` / ``delete``) in order, or legacy
+    top-level ``move`` then ``delete`` arrays (all moves first, then all deletes).
+    """
+    cwd = cwd or Path.cwd()
+    err = stderr if stderr is not None else sys.stderr
+    migration_path = template_root / ".metadata" / "migration.json"
+    if not migration_path.is_file():
+        return
+    data = load_json(migration_path)
+    steps = _parse_migration_steps(data, migration_path)
+    quarantined_any = False
+
+    for kind, a, b in steps:
+        if kind == "move":
+            fr, to = a, b
+            src = _migration_target_under_cwd(cwd, fr, migration_file=migration_path, context="move.from")
+            dst = _migration_target_under_cwd(cwd, to, migration_file=migration_path, context="move.to")
+            if not src.exists():
+                continue
+            if dst.exists():
+                _quarantine_under_backup(
+                    cwd=cwd,
+                    path=dst,
+                    stderr=err,
+                    message=(
+                        f"Existing destination {to!r} was moved aside to apply migration. "
+                        "Review the backup and delete it if you no longer need that content."
+                    ),
+                )
+                quarantined_any = True
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(src), str(dst))
+        elif kind == "delete":
+            rel = a
+            target = _migration_target_under_cwd(cwd, rel, migration_file=migration_path, context="delete")
+            if not target.exists():
+                continue
+            _quarantine_under_backup(
+                cwd=cwd,
+                path=target,
+                stderr=err,
+                message=(
+                    f"Path {rel!r} is marked for removal by the template migration and was quarantined "
+                    "(not deleted in place). Review the backup and delete it when ready."
+                ),
+            )
+            quarantined_any = True
+
+    if quarantined_any:
+        print(
+            "spectask-init: Consider adding `.backup_spectask/` to `.gitignore` "
+            "if you do not want quarantined files tracked.",
+            file=err,
+        )
 
 
 def _ide_paths_union_all(skills: dict[str, Any]) -> list[str]:
@@ -222,7 +424,7 @@ def _preflight_required_navigation_and_hla(
     """Fail before copying if required-list would overwrite existing navigation or HLA files."""
     conflicts: list[str] = []
     for rel in required:
-        if rel == "spec/navigation.md" and not skip_navigation_file and (cwd / rel).exists():
+        if rel == NAVIGATION_FILE_RELPATH and not skip_navigation_file and (cwd / rel).exists():
             conflicts.append(rel)
         elif rel == "spec/design/hla.md" and not skip_hla_file and (cwd / rel).exists():
             conflicts.append(rel)
@@ -239,11 +441,7 @@ def _preflight_required_navigation_and_hla(
     )
     if len(uniq) == 1:
         path = uniq[0]
-        skip_flag = (
-            "--skip-navigation-file"
-            if path == "spec/navigation.md"
-            else "--skip-hla-file"
-        )
+        skip_flag = "--skip-navigation-file" if path == NAVIGATION_FILE_RELPATH else "--skip-hla-file"
         raise RuntimeError(
             f"Refusing to overwrite existing {path}. {update_hint} "
             f"or {skip_flag} to keep your file and skip copying it from the template.",
@@ -307,7 +505,7 @@ def run_template_bootstrap(
             skip_hla_file=skip_hla_file,
         )
         for rel in required:
-            if skip_navigation_file and rel == "spec/navigation.md":
+            if skip_navigation_file and rel == NAVIGATION_FILE_RELPATH:
                 continue
             if skip_hla_file and rel == "spec/design/hla.md":
                 continue
@@ -329,6 +527,8 @@ def run_template_bootstrap(
             ide_effective = resolve_auto_ide_keys(template_root=template_root, cwd=Path.cwd(), skills=skills)
         for rel in ide_files_for(skills, ide_effective):
             copy_into_cwd(template_root, rel)
+
+        apply_template_migration(template_root=template_root, cwd=Path.cwd())
 
 
 def copy_extend_overlay(extend_root: Path) -> None:

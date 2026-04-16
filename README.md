@@ -6,11 +6,46 @@ The PyPI project and console command are **`spectask-init`**. Run it from the di
 
 ## Use with uvx (recommended)
 
-[`uvx`](https://docs.astral.sh/uv/guides/tools/) runs the tool from PyPI without a permanent install. Install [**uv**](https://docs.astral.sh/uv/getting-started/installation/) first (it includes `uvx`).
+[`uvx`](https://docs.astral.sh/uv/guides/tools/) runs the tool from PyPI without a permanent install. Install [**uv**](https://docs.astral.sh/uv/getting-started/installation/) first — the installer ships both `uv` and `uvx`.
+
+**Install uv (includes `uvx`):**
+
+Windows (PowerShell):
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+macOS / Linux:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Then open a new terminal and verify:
+
+```bash
+uv --version
+uvx --version
+```
+
+**Run `spectask-init`:**
 
 ```bash
 uvx spectask-init --help
 uvx spectask-init --ide cursor
+```
+
+**Update the tool on the next `uvx` run** (pick up the latest PyPI release instead of a cached environment):
+
+```bash
+uvx spectask-init@latest --ide cursor
+```
+
+If resolution metadata for the package looks stale, refresh the cache for it:
+
+```bash
+uvx --refresh-package spectask-init spectask-init --ide cursor
 ```
 
 **Requirements:**
@@ -29,11 +64,11 @@ uvx spectask-init --ide cursor
 | **`--extend`** | Optional second source (ZIP or Git) merged into **`spec/extend/`** after the main template. |
 | **`--extend-branch`** | Git branch for **`--extend`** when it is **not** a ZIP (default: `main`). |
 | **`--skip-example`** | Do not copy paths listed in the template’s example list (keeps the tree minimal). |
-| **`--skip-navigation-file`** | Do not copy **`spec/navigation.md`**. For advanced workflows; a normal Spectask tree usually keeps this file. |
+| **`--skip-navigation-file`** | Do not copy **`spec/navigation.yaml`** from the template’s required list. For advanced workflows; a normal Spectask tree usually keeps this file. |
 | **`--skip-hla-file`** | Do not copy **`spec/design/hla.md`**. For advanced workflows; a normal Spectask tree usually keeps this file. |
 | **`--update`** | Shorthand for **`--skip-example`**, **`--skip-navigation-file`**, and **`--skip-hla-file`**. If you **omit** **`--ide`**, it behaves like **`--ide auto`** (detection from the template + your cwd). If you pass **`--ide`**, only the skip behavior is combined with your IDE choice. |
 
-If **`spec/navigation.md`** or **`spec/design/hla.md`** already exists in the current directory, a normal run **refuses to overwrite** it and prints a hint to use **`--update`** or the matching **`--skip-navigation-file`** / **`--skip-hla-file`** flag.
+If **`spec/navigation.yaml`** or **`spec/design/hla.md`** already exists in the current directory, a normal run **refuses to overwrite** it and prints a hint to use **`--update`** or the matching **`--skip-navigation-file`** / **`--skip-hla-file`** flag.
 
 With the **default** **`--template-url`**, **`--ide`** must be one of: **`cursor`**, **`claude-code`**, **`qwen-code`**, **`qoder`**, **`windsurf`**, **`auto`**, or **`all`**. With a **custom** template URL, any IDE name present in that template’s **`skills-map.json`** is allowed (and **`auto`** / **`all`** follow the same rules if the template supports them).
 
