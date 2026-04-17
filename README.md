@@ -1,6 +1,8 @@
 # spectask-init
 
-**[Spectask](https://github.com/noant/spectask)** is the upstream methodology and template repository. This repo publishes the **`spectask-init`** CLI (Python 3.10+): it bootstraps Spectask-style files into the **current working directory**—fetch a template (ZIP or Git), copy required paths and IDE-specific files, and optionally merge a `spec/extend` overlay.
+CLI tool (Python 3.10+) that bootstraps a [Spectask](https://github.com/noant/spectask) layout into the current working directory — fetches a source (ZIP or Git), copies required paths and IDE-specific files, and optionally merges a `spec/extend` overlay.
+
+**[Spectask](https://github.com/noant/spectask)** is the upstream methodology and template repository: spec-driven workflow, directory conventions, and reference files that this tool installs.
 
 Install **[uv](https://docs.astral.sh/uv/getting-started/installation/)** first — it provides **`uvx`** (see [Running tools](https://docs.astral.sh/uv/guides/tools/#running-tools)).
 
