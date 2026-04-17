@@ -2,34 +2,9 @@
 
 **[Spectask](https://github.com/noant/spectask)** is the upstream methodology and template repository. This repo publishes the **`spectask-init`** CLI (Python 3.10+): it bootstraps Spectask-style files into the **current working directory**—fetch a template (ZIP or Git), copy required paths and IDE-specific files, and optionally merge a `spec/extend` overlay.
 
-The PyPI project and console command are **`spectask-init`**. Run it from the directory that should receive the files (the tool uses your shell’s current working directory).
+Install **[uv](https://docs.astral.sh/uv/getting-started/installation/)** first — it provides **`uvx`** (see [Running tools](https://docs.astral.sh/uv/guides/tools/#running-tools)).
 
-## Use with uvx (recommended)
-
-[`uvx`](https://docs.astral.sh/uv/guides/tools/) runs the tool from PyPI without a permanent install. Install [**uv**](https://docs.astral.sh/uv/getting-started/installation/) first — the installer ships both `uv` and `uvx`.
-
-**Install uv (includes `uvx`):**
-
-Windows (PowerShell):
-
-```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-macOS / Linux:
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-Then open a new terminal and verify:
-
-```bash
-uv --version
-uvx --version
-```
-
-**Run `spectask-init`:**
+**Run `spectask-init`:** 
 
 ```bash
 uvx spectask-init --help
@@ -137,20 +112,6 @@ spectask-init --ide cursor
 pip install spectask-init
 spectask-init --ide cursor
 ```
-
-## Installing uv (quick reference)
-
-| Platform | Command |
-|----------|---------|
-| **Windows** (PowerShell) | `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 \| iex"` |
-| **macOS / Linux** | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
-
-More options: [uv installation](https://docs.astral.sh/uv/getting-started/installation/).
-
-## Docs
-
-- Architecture: [`spec/design/hla.md`](spec/design/hla.md)
-- Spec methodology: [`spec/main.md`](spec/main.md)
 
 ## Maintainer: tests and publishing
 
