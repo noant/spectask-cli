@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 from spectask_init.cli import main
 
@@ -13,7 +14,7 @@ EXTEND_ZIP = "https://github.com/noant/spectask-my-extend/archive/refs/heads/mai
 EXTEND_GIT = "https://github.com/noant/spectask-my-extend.git"
 
 EXAMPLE_ONLY = Path("spec/tasks/0-example-hello/overview.md")
-EXTEND_OVERLAY = Path("spec/extend/0-misc.md")
+EXTEND_OVERLAY = Path("spec/extend/00-general.md")
 CURSOR_SKILL = Path(".cursor/skills/spectask-create/SKILL.md")
 
 
@@ -186,23 +187,53 @@ def test_skip_hla_file_omits_hla(tmp_path, monkeypatch) -> None:
 
 
 @pytest.mark.integration
-def test_init_refuses_overwrite_existing_navigation(tmp_path, monkeypatch, capsys) -> None:
+def test_init_merges_existing_navigation(tmp_path, monkeypatch, capsys) -> None:
     (tmp_path / "spec").mkdir(parents=True)
-    (tmp_path / "spec" / "navigation.yaml").write_text("# existing\n", encoding="utf-8")
+    (tmp_path / "spec" / "navigation.yaml").write_text(
+        "version: 1\nextend: []\ndesign: []\n",
+        encoding="utf-8",
+    )
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         sys,
         "argv",
         ["spectask-init", "--template-url", TEMPLATE_ZIP, "--ide", "cursor"],
     )
-    with pytest.raises(SystemExit) as excinfo:
-        main()
-    assert excinfo.value.code == 1
+    main()
     err = capsys.readouterr().err
-    assert "Refusing" in err
-    assert "spec/navigation.yaml" in err
-    assert "--update --skip-navigation-file" in err
-    assert "--skip-navigation-file" in err
+    assert "Refusing" not in err
+    assert (tmp_path / "spec" / "navigation.yaml").is_file()
+    assert (tmp_path / "spec" / "design" / "hla.md").is_file()
+    doc = yaml.safe_load((tmp_path / "spec" / "navigation.yaml").read_text(encoding="utf-8"))
+    assert isinstance(doc, dict)
+    assert doc.get("version") == 1
+    design = doc.get("design")
+    assert isinstance(design, list) and len(design) >= 1
+    extend = doc.get("extend")
+    assert isinstance(extend, list)
+
+
+@pytest.mark.integration
+def test_update_with_existing_valid_navigation_merges(tmp_path, monkeypatch, capsys) -> None:
+    """``--update`` with a valid cwd registry must merge template rows, not refuse navigation."""
+    _mkdir_for_cursor_ide_auto(tmp_path)
+    (tmp_path / "spec").mkdir(parents=True)
+    (tmp_path / "spec" / "design").mkdir(parents=True)
+    (tmp_path / "spec" / "design" / "hla.md").write_text("# existing hla\n", encoding="utf-8")
+    (tmp_path / "spec" / "navigation.yaml").write_text(
+        "version: 1\nextend: []\ndesign: []\n",
+        encoding="utf-8",
+    )
+    _run_main(monkeypatch, tmp_path, ["--template-url", TEMPLATE_ZIP, "--update"])
+    err = capsys.readouterr().err
+    assert "Refusing" not in err
+    assert (tmp_path / "spec" / "navigation.yaml").is_file()
+    doc = yaml.safe_load((tmp_path / "spec" / "navigation.yaml").read_text(encoding="utf-8"))
+    assert isinstance(doc, dict)
+    design = doc.get("design")
+    assert isinstance(design, list) and len(design) >= 1
+    extend = doc.get("extend")
+    assert isinstance(extend, list)
 
 
 @pytest.mark.integration

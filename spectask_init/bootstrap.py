@@ -100,11 +100,6 @@ def _parse_registry_section(
     return True, out
 
 
-def _validated_extend_entries(data: dict[str, Any], *, nav_file: Path) -> list[dict[str, Any]]:
-    _, items = _parse_registry_section(data, nav_file=nav_file, key="extend")
-    return items
-
-
 def _source_has_non_empty_design_list(data: dict[str, Any], *, nav_file: Path) -> bool:
     explicit, items = _parse_registry_section(data, nav_file=nav_file, key="design")
     return explicit and len(items) > 0
@@ -137,6 +132,68 @@ def _write_navigation_yaml_atomic(target: Path, data: dict[str, Any]) -> None:
         raise
 
 
+def _merge_navigation_registry_sections_from_src(
+    *,
+    cwd_doc: dict[str, Any],
+    src_doc: dict[str, Any],
+    cwd_nav: Path,
+    src_nav: Path,
+    keys: tuple[str, ...],
+) -> tuple[dict[str, Any], bool]:
+    """Append rows from ``src_doc`` for each ``keys`` section when normalized path is new; cwd rows win on duplicates."""
+    merged_doc = copy.deepcopy(cwd_doc)
+    any_change = False
+    for key in keys:
+        _, cwd_items = _parse_registry_section(merged_doc, nav_file=cwd_nav, key=key)
+        _, src_items = _parse_registry_section(src_doc, nav_file=src_nav, key=key)
+        merged_list = [copy.deepcopy(x) for x in cwd_items]
+        seen: set[str] = set()
+        for i, item in enumerate(merged_list):
+            seen.add(
+                _normalize_extend_registry_path(
+                    item["path"],
+                    nav_file=cwd_nav,
+                    context=f"{key}[{i}]",
+                ),
+            )
+        appended = False
+        for i, item in enumerate(src_items):
+            nk = _normalize_extend_registry_path(
+                item["path"],
+                nav_file=src_nav,
+                context=f"{key}[{i}]",
+            )
+            if nk not in seen:
+                merged_list.append(copy.deepcopy(item))
+                seen.add(nk)
+                appended = True
+        if appended:
+            merged_doc[key] = merged_list
+            any_change = True
+    return merged_doc, any_change
+
+
+def merge_template_source_navigation(*, cwd: Path, template_root: Path) -> None:
+    """Merge ``extend:`` and ``design:`` from the template navigation file into cwd when both exist."""
+    cwd_nav = (cwd / NAVIGATION_FILE_RELPATH).resolve()
+    src_nav = (template_root / "spec" / "navigation.yaml").resolve()
+    if not cwd_nav.is_file():
+        return
+    if not src_nav.is_file():
+        return
+    cwd_doc = _navigation_root_mapping(_load_yaml_document(cwd_nav), path=cwd_nav)
+    src_doc = _navigation_root_mapping(_load_yaml_document(src_nav), path=src_nav)
+    merged_doc, any_change = _merge_navigation_registry_sections_from_src(
+        cwd_doc=cwd_doc,
+        src_doc=src_doc,
+        cwd_nav=cwd_nav,
+        src_nav=src_nav,
+        keys=("extend", "design"),
+    )
+    if any_change:
+        _write_navigation_yaml_atomic(cwd_nav, merged_doc)
+
+
 def merge_extend_source_navigation(
     *,
     cwd: Path,
@@ -154,9 +211,6 @@ def merge_extend_source_navigation(
     cwd_doc = _navigation_root_mapping(_load_yaml_document(cwd_nav), path=cwd_nav)
     src_doc = _navigation_root_mapping(_load_yaml_document(src_nav), path=src_nav)
 
-    cwd_extend = _validated_extend_entries(cwd_doc, nav_file=cwd_nav)
-    src_extend = _validated_extend_entries(src_doc, nav_file=src_nav)
-
     if _source_has_non_empty_design_list(src_doc, nav_file=src_nav):
         print(
             "spectask-init: warning: extend source spec/navigation.yaml lists design entries; "
@@ -166,35 +220,15 @@ def merge_extend_source_navigation(
             file=stderr,
         )
 
-    merged_extend: list[dict[str, Any]] = [copy.deepcopy(x) for x in cwd_extend]
-    seen: set[str] = set()
-    for i, item in enumerate(merged_extend):
-        seen.add(
-            _normalize_extend_registry_path(
-                item["path"],
-                nav_file=cwd_nav,
-                context=f"extend[{i}]",
-            ),
-        )
-
-    appended = False
-    for i, item in enumerate(src_extend):
-        key = _normalize_extend_registry_path(
-            item["path"],
-            nav_file=src_nav,
-            context=f"extend[{i}]",
-        )
-        if key not in seen:
-            merged_extend.append(copy.deepcopy(item))
-            seen.add(key)
-            appended = True
-
-    if not appended:
-        return
-
-    merged_doc = copy.deepcopy(cwd_doc)
-    merged_doc["extend"] = merged_extend
-    _write_navigation_yaml_atomic(cwd_nav, merged_doc)
+    merged_doc, any_change = _merge_navigation_registry_sections_from_src(
+        cwd_doc=cwd_doc,
+        src_doc=src_doc,
+        cwd_nav=cwd_nav,
+        src_nav=src_nav,
+        keys=("extend",),
+    )
+    if any_change:
+        _write_navigation_yaml_atomic(cwd_nav, merged_doc)
 
 
 def _reconcile_registry_list(
@@ -699,12 +733,11 @@ def _preflight_required_navigation_and_hla(
     skip_navigation_file: bool,
     skip_hla_file: bool,
 ) -> None:
-    """Fail before copying if required-list would overwrite existing navigation or HLA files."""
+    """Fail before copying if required-list would overwrite an existing HLA file."""
+    _ = skip_navigation_file  # Navigation uses merge-on-existing; not a preflight overwrite conflict.
     conflicts: list[str] = []
     for rel in required:
-        if rel == NAVIGATION_FILE_RELPATH and not skip_navigation_file and (cwd / rel).exists():
-            conflicts.append(rel)
-        elif rel == "spec/design/hla.md" and not skip_hla_file and (cwd / rel).exists():
+        if rel == "spec/design/hla.md" and not skip_hla_file and (cwd / rel).exists():
             conflicts.append(rel)
     if not conflicts:
         return
@@ -714,26 +747,11 @@ def _preflight_required_navigation_and_hla(
         if c not in seen:
             seen.add(c)
             uniq.append(c)
-    nav = NAVIGATION_FILE_RELPATH
-    if len(uniq) == 1:
-        path = uniq[0]
-        if path == nav:
-            raise RuntimeError(
-                f"Refusing to overwrite existing {path}. "
-                "Pass --skip-navigation-file to keep your file and skip copying it from the template. "
-                "To also apply --skip-example and --skip-hla-file, use --update --skip-navigation-file.",
-            )
-        raise RuntimeError(
-            f"Refusing to overwrite existing {path}. "
-            "Pass --skip-hla-file to keep your file and skip copying it from the template, "
-            "or pass --update (applies --skip-example and --skip-hla-file).",
-        )
     paths = " and ".join(uniq)
     raise RuntimeError(
-        f"Refusing to overwrite existing files: {paths}. "
-        "Pass --skip-navigation-file and --skip-hla-file to keep your files and skip copying them "
-        "from the template, or pass --update together with --skip-navigation-file "
-        "(applies --skip-example and --skip-hla-file).",
+        f"Refusing to overwrite existing {paths}. "
+        "Pass --skip-hla-file to keep your file and skip copying it from the template, "
+        "or pass --update (applies --skip-example and --skip-hla-file).",
     )
 
 
@@ -793,6 +811,9 @@ def run_template_bootstrap(
             if skip_navigation_file and rel == NAVIGATION_FILE_RELPATH:
                 continue
             if skip_hla_file and rel == "spec/design/hla.md":
+                continue
+            if rel == NAVIGATION_FILE_RELPATH and (Path.cwd() / rel).is_file():
+                merge_template_source_navigation(cwd=Path.cwd(), template_root=template_root)
                 continue
             copy_into_cwd(template_root, rel)
 

@@ -340,26 +340,79 @@ def _fake_acquire_root(template_root: Path):
     return _acquire
 
 
-def test_preflight_existing_navigation_refuses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_preflight_existing_navigation_merges_template_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     tpl = _minimal_template_root(tmp_path)
     proj = tmp_path / "proj"
     proj.mkdir()
     monkeypatch.chdir(proj)
     (proj / "spec").mkdir()
-    (proj / "spec" / "navigation.yaml").write_text("existing\n", encoding="utf-8")
+    (proj / "spec" / "navigation.yaml").write_text(
+        "version: 1\nextend: []\ndesign: []\n",
+        encoding="utf-8",
+    )
     monkeypatch.setattr("spectask_init.bootstrap.acquire_source", _fake_acquire_root(tpl))
-    with pytest.raises(RuntimeError, match="spec/navigation.yaml") as exc:
-        run_template_bootstrap(
-            template_url="https://example.com/x.zip",
-            ide=("cursor",),
-            skip_example=True,
-            skip_navigation_file=False,
-            skip_hla_file=False,
-            template_branch="main",
-        )
-    msg = str(exc.value)
-    assert "--update --skip-navigation-file" in msg
-    assert "--skip-navigation-file" in msg
+    run_template_bootstrap(
+        template_url="https://example.com/x.zip",
+        ide=("cursor",),
+        skip_example=True,
+        skip_navigation_file=False,
+        skip_hla_file=False,
+        template_branch="main",
+    )
+    nav = yaml.safe_load((proj / "spec" / "navigation.yaml").read_text(encoding="utf-8"))
+    assert nav == yaml.safe_load(_minimal_template_navigation_yaml())
+    assert (proj / "spec" / "design" / "hla.md").read_text(encoding="utf-8") == "tpl-hla\n"
+
+
+def test_merge_template_navigation_keeps_cwd_row_when_path_matches_template(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Duplicate normalized paths: cwd description and extra keys must win over the template row."""
+    tpl = _minimal_template_root(tmp_path)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    monkeypatch.chdir(proj)
+    (proj / "spec").mkdir()
+    (proj / "spec" / "extend").mkdir(parents=True)
+    (proj / "spec" / "extend" / "only-in-cwd.md").write_text("# cwd\n", encoding="utf-8")
+    (proj / "spec" / "navigation.yaml").write_text(
+        "version: 1\n"
+        "extend:\n"
+        "  - path: spec/extend/only-in-cwd.md\n"
+        "    description: cwd-only extend\n"
+        "design:\n"
+        "  - path: spec/design/hla.md\n"
+        "    description: user-kept design row\n"
+        "    custom: true\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("spectask_init.bootstrap.acquire_source", _fake_acquire_root(tpl))
+    run_template_bootstrap(
+        template_url="https://example.com/x.zip",
+        ide=("cursor",),
+        skip_example=True,
+        skip_navigation_file=False,
+        skip_hla_file=False,
+        template_branch="main",
+    )
+    nav = yaml.safe_load((proj / "spec" / "navigation.yaml").read_text(encoding="utf-8"))
+    extend = nav.get("extend")
+    assert isinstance(extend, list)
+    paths = [e.get("path") for e in extend if isinstance(e, dict)]
+    assert "spec/extend/only-in-cwd.md" in paths
+    assert any(
+        isinstance(e, dict)
+        and e.get("path") == "spec/extend/only-in-cwd.md"
+        and e.get("description") == "cwd-only extend"
+        for e in extend
+    )
+    design = nav.get("design")
+    assert isinstance(design, list)
+    hla_rows = [e for e in design if isinstance(e, dict) and e.get("path") == "spec/design/hla.md"]
+    assert len(hla_rows) == 1
+    assert hla_rows[0].get("description") == "user-kept design row"
+    assert hla_rows[0].get("custom") is True
 
 
 def test_preflight_existing_hla_refuses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -385,17 +438,23 @@ def test_preflight_existing_hla_refuses(tmp_path: Path, monkeypatch: pytest.Monk
     assert "--skip-hla-file" in msg
 
 
-def test_preflight_both_existing_refuses_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_preflight_existing_hla_refuses_even_when_navigation_exists(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     tpl = _minimal_template_root(tmp_path)
     proj = tmp_path / "proj"
     proj.mkdir()
     monkeypatch.chdir(proj)
     (proj / "spec").mkdir()
-    (proj / "spec" / "navigation.yaml").write_text("n\n", encoding="utf-8")
+    (proj / "spec" / "navigation.yaml").write_text(
+        "version: 1\nextend: []\ndesign: []\n",
+        encoding="utf-8",
+    )
     (proj / "spec" / "design").mkdir()
     (proj / "spec" / "design" / "hla.md").write_text("h\n", encoding="utf-8")
     monkeypatch.setattr("spectask_init.bootstrap.acquire_source", _fake_acquire_root(tpl))
-    with pytest.raises(RuntimeError) as exc:
+    with pytest.raises(RuntimeError, match="spec/design/hla.md") as exc:
         run_template_bootstrap(
             template_url="https://example.com/x.zip",
             ide=("cursor",),
@@ -405,9 +464,7 @@ def test_preflight_both_existing_refuses_once(tmp_path: Path, monkeypatch: pytes
             template_branch="main",
         )
     msg = str(exc.value)
-    assert "spec/navigation.yaml" in msg
-    assert "spec/design/hla.md" in msg
-    assert "--skip-navigation-file" in msg
+    assert "spec/navigation.yaml" not in msg
     assert "--skip-hla-file" in msg
     assert "--update" in msg
     assert "applies --skip-example and --skip-hla-file" in msg
