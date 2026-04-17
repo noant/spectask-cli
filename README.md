@@ -68,8 +68,6 @@ uvx --refresh-package spectask-init spectask-init --ide cursor
 | **`--skip-hla-file`** | Do not copy **`spec/design/hla.md`**. For advanced workflows; a normal Spectask tree usually keeps this file. |
 | **`--update`** | Shorthand for **`--skip-example`** and **`--skip-hla-file`** only (it does **not** imply **`--skip-navigation-file`**). Add **`--skip-navigation-file`** explicitly if you want the older behavior of refreshing IDE-related files without copying the template **`spec/navigation.yaml`**. If you **omit** **`--ide`**, it behaves like **`--ide auto`** (detection from the template + your cwd). If you pass **`--ide`**, only the skip behavior is combined with your IDE choice. |
 
-If **`spec/design/hla.md`** already exists, a normal run **refuses to overwrite** it unless you pass **`--skip-hla-file`** or **`--update`** (which applies **`--skip-hla-file`**). If **`spec/navigation.yaml`** already exists, the tool **merges** template registry content into your file: **`extend:`** and **`design:`** rows from the template are **appended** when their normalized path is not already listed; if a path is already present, the existing row is kept (same merge semantics as **`--extend`**). When the file is absent, it is copied from the template as before. **`--skip-navigation-file`** skips the navigation step entirely—**no copy and no merge**. **`--update`** does **not** imply **`--skip-navigation-file`**, so refresh runs still merge or copy the registry unless you add **`--skip-navigation-file`**. Use **`--update --skip-navigation-file`** when you want the example and HLA skips from **`--update`** without changing **`spec/navigation.yaml`**.
-
 With the **default** **`--template-url`**, **`--ide`** must be one of: **`cursor`**, **`claude-code`**, **`qwen-code`**, **`qoder`**, **`windsurf`**, **`auto`**, or **`all`**. With a **custom** template URL, any IDE name present in that template’s **`skills-map.json`** is allowed (and **`auto`** / **`all`** follow the same rules if the template supports them).
 
 ## Examples
@@ -177,5 +175,3 @@ uv run pytest tests -m "not integration"
 export spectask_publish_pypi_token=pypi-...   # or: python scripts/publish.py --token pypi-...
 python scripts/publish.py
 ```
-
-Do not commit tokens. See [uv publish](https://docs.astral.sh/uv/guides/publish/).
