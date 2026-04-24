@@ -16,6 +16,7 @@ OFFICIAL_TEMPLATE_IDE_KEYS: tuple[str, ...] = (
     "qwen-code",
     "qoder",
     "windsurf",
+    "codex",
 )
 
 
