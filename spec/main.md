@@ -31,7 +31,7 @@ Mark each status [V] on completion. Prompt the user after steps 2, 5, and 6.
 
 **Executor:** AI Agent (current context)
 
-1.1 **Implementation clarifications** — If several viable implementation paths are plausible, or some aspects look optional, ambiguous, or convention-dependent, formulate explicit questions for the user about those nuances before treating the spec as complete. Record the answers (or agreed defaults) in **Details** so the spec leaves no silent forks.
+1.1 **Implementation clarifications** *(blocking)* — Before writing any spec content, identify ambiguous, optional, or convention-dependent aspects. Ask the user explicit questions and wait for answers. Record answers (or agreed defaults) in **Details**. Skip only if the task has a single obvious implementation path.
 1.2 **Design overview** — in task `overview.md`, add **Design overview** section: affected modules, data flow changes, integration points.
 1.3 **Overview** — `spec/tasks/{X}-{name}/overview.md` must follow [overview.md Template](#overviewmd-template): sections through `## Details` (before/after and code examples go there); **Goal** = one sentence. Add `## Execution Scheme` only when work splits into 2+ steps.
 1.4 **Execution Plan** — If 2+ steps: `## Execution Scheme` step ids must match `{N}-{description}.md` from 1.5.

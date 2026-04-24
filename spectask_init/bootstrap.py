@@ -74,6 +74,32 @@ def _normalize_extend_registry_path(rel: str, *, nav_file: Path, context: str) -
     return str(p)
 
 
+def _coalesce_read(cwd_read: str | None, src_read: str | None) -> str | None:
+    """``None`` for each arg means the row omits ``read`` (default optional).
+
+    Return ``required``, ``optional``, or ``None`` to omit ``read`` in the merged row.
+    """
+    if cwd_read == "required" or src_read == "required":
+        return "required"
+    if cwd_read == "optional" or src_read == "optional":
+        return "optional"
+    return None
+
+
+def _read_field_from_item(item: dict[str, Any], *, nav_file: Path, key: str, i: int) -> str | None:
+    """Return validated ``read`` or ``None`` if the key is absent."""
+    if "read" not in item:
+        return None
+    v = item["read"]
+    if v == "required" or v == "optional":
+        return v
+    if not isinstance(v, str):
+        raise RuntimeError(
+            f"{nav_file}: {key}[{i}].read must be 'required' or 'optional', not {type(v).__name__}",
+        )
+    raise RuntimeError(f"{nav_file}: {key}[{i}].read must be 'required' or 'optional', got {v!r}")
+
+
 def _parse_registry_section(
     data: dict[str, Any],
     *,
@@ -96,8 +122,31 @@ def _parse_registry_section(
         if not isinstance(p, str) or not p:
             raise RuntimeError(f"{nav_file}: {key}[{i}] must have a non-empty string 'path'")
         _normalize_extend_registry_path(p, nav_file=nav_file, context=f"{key}[{i}]")
+        _read_field_from_item(item, nav_file=nav_file, key=key, i=i)
         out.append(item)
     return True, out
+
+
+def _merge_read_field_into_row(
+    cwd_row: dict[str, Any],
+    src_item: dict[str, Any],
+    *,
+    cwd_nav: Path,
+    src_nav: Path,
+    key: str,
+    cwd_i: int,
+    src_i: int,
+) -> dict[str, Any]:
+    """Deep-copy ``cwd_row`` and merge only ``read`` from cwd and src; never copy ``description`` from src."""
+    out = copy.deepcopy(cwd_row)
+    cwd_read = _read_field_from_item(cwd_row, nav_file=cwd_nav, key=key, i=cwd_i)
+    src_read = _read_field_from_item(src_item, nav_file=src_nav, key=key, i=src_i)
+    coalesced = _coalesce_read(cwd_read, src_read)
+    if coalesced is None:
+        out.pop("read", None)
+    else:
+        out["read"] = coalesced
+    return out
 
 
 def _source_has_non_empty_design_list(data: dict[str, Any], *, nav_file: Path) -> bool:
@@ -140,34 +189,48 @@ def _merge_navigation_registry_sections_from_src(
     src_nav: Path,
     keys: tuple[str, ...],
 ) -> tuple[dict[str, Any], bool]:
-    """Append rows from ``src_doc`` for each ``keys`` section when normalized path is new; cwd rows win on duplicates."""
+    """Merge registry sections: append new normalized paths from src; on duplicates, cwd keeps row data except merged ``read``."""
     merged_doc = copy.deepcopy(cwd_doc)
     any_change = False
     for key in keys:
         _, cwd_items = _parse_registry_section(merged_doc, nav_file=cwd_nav, key=key)
         _, src_items = _parse_registry_section(src_doc, nav_file=src_nav, key=key)
         merged_list = [copy.deepcopy(x) for x in cwd_items]
-        seen: set[str] = set()
+        path_to_index: dict[str, int] = {}
         for i, item in enumerate(merged_list):
-            seen.add(
-                _normalize_extend_registry_path(
-                    item["path"],
-                    nav_file=cwd_nav,
-                    context=f"{key}[{i}]",
-                ),
+            nk = _normalize_extend_registry_path(
+                item["path"],
+                nav_file=cwd_nav,
+                context=f"{key}[{i}]",
             )
-        appended = False
+            if nk not in path_to_index:
+                path_to_index[nk] = i
+        section_changed = False
         for i, item in enumerate(src_items):
             nk = _normalize_extend_registry_path(
                 item["path"],
                 nav_file=src_nav,
                 context=f"{key}[{i}]",
             )
-            if nk not in seen:
+            if nk not in path_to_index:
                 merged_list.append(copy.deepcopy(item))
-                seen.add(nk)
-                appended = True
-        if appended:
+                path_to_index[nk] = len(merged_list) - 1
+                section_changed = True
+                continue
+            j = path_to_index[nk]
+            merged_row = _merge_read_field_into_row(
+                merged_list[j],
+                item,
+                cwd_nav=cwd_nav,
+                src_nav=src_nav,
+                key=key,
+                cwd_i=j,
+                src_i=i,
+            )
+            if merged_row != merged_list[j]:
+                merged_list[j] = merged_row
+                section_changed = True
+        if section_changed:
             merged_doc[key] = merged_list
             any_change = True
     return merged_doc, any_change
