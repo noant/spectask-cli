@@ -1,0 +1,10 @@
+interface:
+  display_name: "Spectask: new spec"
+  short_description: "Draft a task overview and run Steps 1–2 (spec only); stop before your spec review."
+  brand_color: "#0D9488"
+
+policy:
+  allow_implicit_invocation: true
+
+dependencies:
+  tools: []

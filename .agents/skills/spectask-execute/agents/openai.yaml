@@ -1,0 +1,10 @@
+interface:
+  display_name: "Spectask: implement"
+  short_description: "Run Steps 4–5 (implementation and self code review), then wait for your Step 6 response."
+  brand_color: "#0D9488"
+
+policy:
+  allow_implicit_invocation: true
+
+dependencies:
+  tools: []

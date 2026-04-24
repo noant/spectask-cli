@@ -1,0 +1,10 @@
+interface:
+  display_name: "Spectask: spec approved"
+  short_description: "After you approved the spec — mark Step 3 and the Step 3 prompt on the task overview."
+  brand_color: "#0D9488"
+
+policy:
+  allow_implicit_invocation: true
+
+dependencies:
+  tools: []

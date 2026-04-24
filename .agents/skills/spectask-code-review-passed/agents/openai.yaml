@@ -1,0 +1,10 @@
+interface:
+  display_name: "Spectask: code approved"
+  short_description: "After you approved the code — Step 6, then Step 7 and HLA update in one run."
+  brand_color: "#0D9488"
+
+policy:
+  allow_implicit_invocation: true
+
+dependencies:
+  tools: []

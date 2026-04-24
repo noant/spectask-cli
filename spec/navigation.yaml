@@ -2,6 +2,7 @@ version: 1
 extend:
 - path: spec/extend/conventions.md
   description: additional conventions
+  read: required
 design:
 - path: spec/design/hla.md
   description: Project high-level architecture.

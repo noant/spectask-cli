@@ -1,0 +1,10 @@
+interface:
+  display_name: "Spectask: new extend"
+  short_description: "Add a new spec/extend document and register it in spec/navigation.yaml."
+  brand_color: "#0D9488"
+
+policy:
+  allow_implicit_invocation: true
+
+dependencies:
+  tools: []
