@@ -3,7 +3,7 @@
 ## Folder Structure
 
 - spec/main.md — this file.
-- spec/navigation.yaml — strict YAML registry of this project’s concrete `spec/extend/*` and optional extra `spec/design/*.md` (`hla.md` required); the structure is fixed on purpose so scripts and other automation can parse it reliably; see Folder Structure here for all other paths (required).
+- spec/navigation.yaml — strict YAML registry of this project’s concrete `spec/extend/*` and optional extra `spec/design/*.md`; the structure is fixed on purpose so scripts and other automation can parse it reliably; each entry may set `read` to `required` or `optional` (default optional). See Folder Structure here for all other paths (required).
 - spec/design/hla.md — project high-level architecture (required).
 - spec/design/{name}.md — other architecture documents (optional; ADRs, notes, etc.); each file besides `hla.md` must be listed in `spec/navigation.yaml`.
 - spec/tasks/{X}-{name}/ — task folder.
@@ -11,9 +11,14 @@
 - spec/tasks/{X}-{name}/{N}-{description}.md — subtask files (optional).
 - spec/extend/{name}.md — team processes, code style, conventions (optional).
 
-No other files are permitted in `spec/`: paths must match this Folder Structure, and any concrete `spec/extend/*.md` or optional extra `spec/design/*.md` (other than `hla.md`) must be listed in `spec/navigation.yaml`. Do not create READMEs or extra docs.
+**Embedded rules:**
 
-**New spec tasks:** follow **Step 1** and the **[overview.md Template](#overviewmd-template)** at the end of this file. Older `spec/tasks/_DONE_*` overviews may predate the template; **do not** copy their structure unless it already matches the template.
+1. Under `spec/`, only paths allowed by this Folder Structure; no other files. Every concrete `spec/extend/*.md` and every optional extra `spec/design/*.md` (other than `hla.md`) must be listed in `spec/navigation.yaml`.
+2. Do not create READMEs or extra docs under `spec/`.
+3. **New spec tasks:** follow **Step 1** and the **[overview.md Template](#overviewmd-template)** at the end of this file. Older `spec/tasks/_DONE_*` overviews may predate the template; **do not** copy their structure unless it already matches the template.
+4. **`read: required` in `spec/navigation.yaml`:** read those files at the very start of the session, before any other action.
+5. **Task-scoped reads:** from `spec/navigation.yaml`, read every path the active task context clearly needs (not only `read: required`).
+6. **Process:** follow the workflow in this document — Steps 1–7, status marks, and user prompts as written.
 
 ---
 
